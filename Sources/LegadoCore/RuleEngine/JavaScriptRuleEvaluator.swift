@@ -592,7 +592,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
             let origin = components.port.map { "\(components.scheme ?? "")://\(host):\($0)" }
                 ?? "\(components.scheme ?? "")://\(host)"
             return [
-                "host": components.port.map { "\(host):\($0)" } ?? host,
+                "host": host,
                 "origin": origin,
                 "pathname": components.percentEncodedPath,
                 "href": url.absoluteString,
