@@ -577,6 +577,28 @@ public struct JavaScriptRuleEvaluator: Sendable {
         let setCookie: @convention(block) (String, String) -> Void = {
             LegadoCookieStore.shared.setCookie($1, for: $0)
         }
+        let toURL: @convention(block) (String, String) -> [String: Any] = { rawURL, rawBaseURL in
+            let baseText = rawBaseURL.isEmpty ? executionContext.baseURL : rawBaseURL
+            let baseURL = baseText.isEmpty ? nil : URL(string: baseText)
+            guard let url = URL(string: rawURL, relativeTo: baseURL)?.absoluteURL,
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
+                  let host = components.host else {
+                return ["error": "Invalid URL: " + rawURL]
+            }
+            var params: [String: String] = [:]
+            for item in components.queryItems ?? [] {
+                params[item.name] = item.value ?? ""
+            }
+            let origin = components.port.map { "\\(components.scheme ?? "")://\\(host):\\($0)" }
+                ?? "\\(components.scheme ?? "")://\\(host)"
+            return [
+                "host": components.port.map { "\\(host):\\($0)" } ?? host,
+                "origin": origin,
+                "pathname": components.percentEncodedPath,
+                "href": url.absoluteString,
+                "searchParams": params
+            ]
+        }
         let ajax: @convention(block) (Any?, Any?) -> String = { value, timeoutValue in
             let rawURL = Self.firstURL(value)
             do {
@@ -701,6 +723,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
         java?.setObject(getCookieHeader, forKeyedSubscript: "getCookieHeader" as NSString)
         java?.setObject(getCookieValue, forKeyedSubscript: "__getCookieValue" as NSString)
         java?.setObject(setCookie, forKeyedSubscript: "setCookie" as NSString)
+        java?.setObject(toURL, forKeyedSubscript: "__toURL" as NSString)
         java?.setObject(ajax, forKeyedSubscript: "ajax" as NSString)
         java?.setObject(ajaxAll, forKeyedSubscript: "ajaxAll" as NSString)
         java?.setObject(connect, forKeyedSubscript: "connect" as NSString)
@@ -830,18 +853,10 @@ public struct JavaScriptRuleEvaluator: Sendable {
               // foreground UI, so both are routed to the existing diagnostic logger.
               java.longToast = java.toast;
               java.toURL = function (rawURL, rawBaseURL) {
-                var base = rawBaseURL == null ? (typeof baseUrl === 'undefined' ? undefined : baseUrl) : String(rawBaseURL);
-                var parsed = base ? new URL(String(rawURL), base) : new URL(String(rawURL));
-                var params = {};
-                parsed.searchParams.forEach(function (value, key) { params[key] = value; });
-                return {
-                  searchParams: params,
-                  host: parsed.host,
-                  origin: parsed.origin,
-                  pathname: parsed.pathname,
-                  href: parsed.href,
-                  toString: function () { return parsed.href; }
-                };
+                var raw = java.__toURL(String(rawURL), rawBaseURL == null ? '' : String(rawBaseURL));
+                if (raw.error) throw new Error(raw.error);
+                raw.toString = function () { return raw.href; };
+                return raw;
               };
               java.getHeaderMap = function () {
                 var map = typeof source === 'undefined' ? {} : source.getHeaderMap(true);
