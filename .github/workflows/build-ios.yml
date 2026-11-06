@@ -66,9 +66,39 @@ jobs:
             -project Legado.xcodeproj \
             -scheme LegadoRSSFlowUITests \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -parallel-testing-enabled NO \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/RSSFlow.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
             test
+
+      - name: Collect RSS UI failure diagnostics
+        if: failure()
+        run: |
+          xcrun simctl list devices booted --json > "$RUNNER_TEMP/rss-simulators.json"
+          python3 -c 'import json,sys; print("\n".join(d["udid"] for devices in json.load(sys.stdin)["devices"].values() for d in devices))' \
+            < "$RUNNER_TEMP/rss-simulators.json" > "$RUNNER_TEMP/rss-simulator-ids.txt"
+          while IFS= read -r device; do
+            test -n "$device" || continue
+            if ! xcrun simctl spawn "$device" log show --last 20m --style compact --info --debug \
+              --predicate 'process == "fileproviderd" OR process == "Legado" OR process == "SourceImportFixtures" OR subsystem BEGINSWITH "com.apple.FileProvider"' \
+              > "$RUNNER_TEMP/rss-simulator-$device.log" 2>&1; then
+              echo "Unable to collect simulator logs for $device; see diagnostic output."
+            fi
+          done < "$RUNNER_TEMP/rss-simulator-ids.txt"
+
+      - name: Upload RSS UI failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rss-ui-failure-diagnostics
+          path: |
+            ${{ runner.temp }}/RSSFlow.xcresult
+            ${{ runner.temp }}/rss-fixture.log
+            ${{ runner.temp }}/rss-simulators.json
+            ${{ runner.temp }}/rss-simulator-*.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Archive unsigned iOS app
         run: |
