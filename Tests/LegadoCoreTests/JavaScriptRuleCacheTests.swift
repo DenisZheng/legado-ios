@@ -61,6 +61,27 @@ struct JavaScriptRuleCacheTests {
         #expect(cache.get("token") == nil)
     }
 
+    @Test func concurrentRuleRequestsCannotKeepExpiredTextAlive() throws {
+        let suite = "rss-cache-concurrent-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let clock = CacheTestClock()
+        let cache = JavaScriptRuleCache(defaults: defaults, now: { clock.now() })
+
+        // 多个规则请求会竞争同一键，并在内存被清理后从持久存储读回。
+        DispatchQueue.concurrentPerform(iterations: 64) { index in
+            let key = "token-\(index % 4)"
+            cache.put(key, value: "temporary-\(index)", saveTime: 10)
+            cache.deleteMemory(key)
+            _ = cache.get(key)
+        }
+        clock.advance(by: 10)
+        for index in 0..<4 {
+            #expect(cache.get("token-\(index)") == nil)
+            #expect(cache.getFromMemory("token-\(index)") == nil)
+        }
+    }
+
     @Test func unlimitedDiskValuesRemainCacheableAndRemoveThePreviousDeadline() throws {
         let suite = "rss-cache-unlimited-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

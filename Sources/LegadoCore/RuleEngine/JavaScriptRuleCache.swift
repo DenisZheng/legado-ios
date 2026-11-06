@@ -11,7 +11,8 @@ public final class JavaScriptRuleCache: @unchecked Sendable {
         let expiresAt: Date?
     }
 
-    private let lock = NSLock()
+    // get/delete 会复用内存方法；递归锁让内存和持久文本的读写保持同一临界区。
+    private let lock = NSRecursiveLock()
     private var memory: [String: Entry] = [:]
     private let defaults: UserDefaults
     private let now: @Sendable () -> Date
@@ -26,13 +27,13 @@ public final class JavaScriptRuleCache: @unchecked Sendable {
     }
 
     public func put(_ key: String, value: String, saveTime: Int = 0) {
+        lock.lock()
+        defer { lock.unlock() }
         let expiry = saveTime > 0 ? now().addingTimeInterval(TimeInterval(saveTime)) : nil
         let entry = Entry(value: value, expiresAt: expiry)
-        lock.lock()
         // Android CacheManager 只把不限时的持久条目放入内存；限时覆盖也要清除旧值。
         if expiry == nil { memory[key] = entry }
         else { memory.removeValue(forKey: key) }
-        lock.unlock()
 
         let storageKey = prefix + key
         defaults.set(value, forKey: storageKey)
@@ -44,6 +45,8 @@ public final class JavaScriptRuleCache: @unchecked Sendable {
     }
 
     public func get(_ key: String, onlyDisk: Bool = false) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
         if !onlyDisk, let value = getFromMemory(key) { return value }
         let storageKey = prefix + key
         let expiry = defaults.object(forKey: storageKey + ".expires") as? Double
@@ -83,6 +86,8 @@ public final class JavaScriptRuleCache: @unchecked Sendable {
     }
 
     public func delete(_ key: String) {
+        lock.lock()
+        defer { lock.unlock() }
         deleteMemory(key)
         defaults.removeObject(forKey: prefix + key)
         defaults.removeObject(forKey: prefix + key + ".expires")

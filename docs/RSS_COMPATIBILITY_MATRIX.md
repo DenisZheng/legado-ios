@@ -104,6 +104,6 @@ RSS UI 本地服务、Files 夹具和完整验证见 [开发指南](DEVELOPMENT.
 
 | 场景 | 状态 | 证据 |
 | --- | --- | --- |
-| C01/C02 | 回归和修复已实施；修复结果以对应 CI 为准 | `JavaScriptRuleCacheTests` 4 项及 `JavaScriptRuleEvaluatorTests.expiringCacheEntriesStayOutOfMemoryAcrossJavaScriptEvaluations`；[旧实现验证](https://github.com/DenisZheng/legado-ios/actions/runs/42211370651) 已复现到期后仍返回旧值，及限时值错误暴露在内存中的问题 |
+| C01/C02 | 回归和修复已实施；修复结果以对应 CI 为准 | `JavaScriptRuleCacheTests` 5 项及 `JavaScriptRuleEvaluatorTests.expiringCacheEntriesStayOutOfMemoryAcrossJavaScriptEvaluations`；[旧实现验证](https://github.com/DenisZheng/legado-ios/actions/runs/42211370651) 已复现到期后仍返回旧值，及限时值错误暴露在内存中的问题；最终修复另补并发读取回归 |
 | C03～C20 | 按各任务继续 | 既有测试见文件，不宣称完成本轮所有场景 |
 | 真实源逐条矩阵 | NOT_RUN | 尚未定位完整源集合；本文只是记录规范和能力场景 |
