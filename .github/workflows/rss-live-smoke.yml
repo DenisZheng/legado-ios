@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - feature/rss-navigation-compat
     paths:
       - "scripts/check-public-rss-feeds.py"
