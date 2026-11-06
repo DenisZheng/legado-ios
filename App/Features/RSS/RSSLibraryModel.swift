@@ -92,7 +92,7 @@ final class RSSLibraryModel: ObservableObject {
             try await self.sourceRepository.save(merged)
             self.sources = try await self.sourceRepository.all()
             let addedCount = max(0, self.sources.count - originalCount)
-            self.successMessage = "导入完成：读取 \\(urls.count) 个文件，包含 \\(importedSourceCount) 个 RSS 源和 \\(subscriptionCount) 个远程订阅清单；新增 \\(addedCount) 个，当前共 \\(self.sources.count) 个。"
+            self.successMessage = "导入完成：读取 \(urls.count) 个文件，包含 \(importedSourceCount) 个 RSS 源和 \(subscriptionCount) 个远程订阅清单；新增 \(addedCount) 个，当前共 \(self.sources.count) 个。"
         }
     }
 
