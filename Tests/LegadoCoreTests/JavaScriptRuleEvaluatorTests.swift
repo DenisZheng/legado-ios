@@ -367,6 +367,23 @@ struct JavaScriptRuleEvaluatorTests {
         #expect(deleted.value.stringValue == "true")
     }
 
+    @Test func expiringCacheEntriesStayOutOfMemoryAcrossJavaScriptEvaluations() throws {
+        let key = "rss-test-expiring-" + UUID().uuidString
+        defer { JavaScriptRuleCache.shared.delete(key) }
+        let evaluator = JavaScriptRuleEvaluator()
+        _ = try evaluator.evaluate(
+            script: "cache.putMemory('\(key)', 'old'); cache.put('\(key)', 'temporary', 300);",
+            result: .null,
+            executionContext: .init()
+        )
+        let value = try evaluator.evaluate(
+            script: "cache.get('\(key)') + '|' + (cache.getFromMemory('\(key)') === null)",
+            result: .null,
+            executionContext: .init()
+        )
+        #expect(value.value.stringValue == "temporary|true")
+    }
+
     @Test func supportsAndroidCreateSymmetricCryptoAESCBCApi() throws {
         let value = try JavaScriptRuleEvaluator().evaluate(
             script: """

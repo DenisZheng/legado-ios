@@ -13,15 +13,20 @@ public final class JavaScriptRuleCache: @unchecked Sendable {
 
     private let lock = NSLock()
     private var memory: [String: Entry] = [:]
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+    private let now: @Sendable () -> Date
     private let prefix = "legado.rule.cache."
     private let memoryPrefix = "legado.rule.cache.memory."
     private let filePrefix = "legado-rule-cache-"
 
-    private init() {}
+    // 独立存储与时钟供契约回归使用；正式调用仍通过 shared。
+    init(defaults: UserDefaults = .standard, now: @escaping @Sendable () -> Date = { Date() }) {
+        self.defaults = defaults
+        self.now = now
+    }
 
     public func put(_ key: String, value: String, saveTime: Int = 0) {
-        let expiry = saveTime > 0 ? Date().addingTimeInterval(TimeInterval(saveTime)) : nil
+        let expiry = saveTime > 0 ? now().addingTimeInterval(TimeInterval(saveTime)) : nil
         let entry = Entry(value: value, expiresAt: expiry)
         lock.lock()
         memory[key] = entry
@@ -40,7 +45,7 @@ public final class JavaScriptRuleCache: @unchecked Sendable {
         if !onlyDisk, let value = getFromMemory(key) { return value }
         let storageKey = prefix + key
         if let expiry = defaults.object(forKey: storageKey + ".expires") as? Double,
-           expiry <= Date().timeIntervalSince1970 {
+           expiry <= now().timeIntervalSince1970 {
             defaults.removeObject(forKey: storageKey)
             defaults.removeObject(forKey: storageKey + ".expires")
             return nil
@@ -59,7 +64,7 @@ public final class JavaScriptRuleCache: @unchecked Sendable {
     public func getFromMemory(_ key: String) -> String? {
         lock.lock()
         let entry = memory[key]
-        if let expiry = entry?.expiresAt, expiry <= Date() {
+        if let expiry = entry?.expiresAt, expiry <= now() {
             memory.removeValue(forKey: key)
             lock.unlock()
             return nil
@@ -89,7 +94,7 @@ public final class JavaScriptRuleCache: @unchecked Sendable {
         )
         try Data(value.utf8).write(to: url, options: .atomic)
         if saveTime > 0 {
-            defaults.set(Date().addingTimeInterval(TimeInterval(saveTime)).timeIntervalSince1970,
+            defaults.set(now().addingTimeInterval(TimeInterval(saveTime)).timeIntervalSince1970,
                          forKey: url.path + ".expires")
         } else {
             defaults.removeObject(forKey: url.path + ".expires")
@@ -99,7 +104,7 @@ public final class JavaScriptRuleCache: @unchecked Sendable {
     public func getFile(_ key: String) -> String? {
         let url = fileURL(for: key)
         if let expiry = defaults.object(forKey: url.path + ".expires") as? Double,
-           expiry <= Date().timeIntervalSince1970 {
+           expiry <= now().timeIntervalSince1970 {
             try? FileManager.default.removeItem(at: url)
             defaults.removeObject(forKey: url.path + ".expires")
             return nil
