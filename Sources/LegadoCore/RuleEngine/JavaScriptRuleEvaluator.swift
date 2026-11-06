@@ -944,7 +944,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
                   return java.base64DecodeToByteArray(data);
                 }
                 function crypt(operation, data) {
-                  var output = java.__legadoAESCBC(operation, keyBytes, ivBytes, inputBytes(data, operation === 2));
+                  var output = __legadoAESCBC(operation, keyBytes, ivBytes, inputBytes(data, operation === 2));
                   if (output == null) throw new Error('AES/CBC operation failed; check key, IV, padding and data encoding');
                   return output;
                 }
