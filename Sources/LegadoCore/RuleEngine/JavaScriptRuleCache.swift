@@ -29,7 +29,9 @@ public final class JavaScriptRuleCache: @unchecked Sendable {
         let expiry = saveTime > 0 ? now().addingTimeInterval(TimeInterval(saveTime)) : nil
         let entry = Entry(value: value, expiresAt: expiry)
         lock.lock()
-        memory[key] = entry
+        // Android CacheManager 只把不限时的持久条目放入内存；限时覆盖也要清除旧值。
+        if expiry == nil { memory[key] = entry }
+        else { memory.removeValue(forKey: key) }
         lock.unlock()
 
         let storageKey = prefix + key
@@ -44,14 +46,15 @@ public final class JavaScriptRuleCache: @unchecked Sendable {
     public func get(_ key: String, onlyDisk: Bool = false) -> String? {
         if !onlyDisk, let value = getFromMemory(key) { return value }
         let storageKey = prefix + key
-        if let expiry = defaults.object(forKey: storageKey + ".expires") as? Double,
-           expiry <= now().timeIntervalSince1970 {
+        let expiry = defaults.object(forKey: storageKey + ".expires") as? Double
+        if let expiry, expiry <= now().timeIntervalSince1970 {
             defaults.removeObject(forKey: storageKey)
             defaults.removeObject(forKey: storageKey + ".expires")
             return nil
         }
         guard let value = defaults.string(forKey: storageKey) else { return nil }
-        if !onlyDisk { putMemory(key, value: value) }
+        // putMemory 没有期限，不能把即将过期的磁盘值提升成永久缓存。
+        if !onlyDisk && expiry == nil { putMemory(key, value: value) }
         return value
     }
 

@@ -125,9 +125,13 @@
 | 批次 | 状态 | 记录 |
 | --- | --- | --- |
 | M0 | 已完成文档 | 固定两个仓库的起点，建立任务与测试矩阵 |
-| M1 | 待开始 | 文档落地后，先补 cache TTL 行为回归，再修复 |
+| M1 | 已实施，验收以修复提交 CI 为准 | 新增 4 项缓存回归及 1 项跨 JS 求值回归；旧实现 `a474da6` 在 [42211370651](https://github.com/DenisZheng/legado-ios/actions/runs/42211370651) 出现 3 项预期失败、4 个断言问题；随后修复限时条目进入永久内存缓存的问题 |
 | M2～M6 | 未开始本轮实施 | 已有功能见快照表；不会将此前实现重复算为本轮交付 |
 | P3-02～04 | 待源集合定位与执行 | 尚未建立 307 条源的结果，不以两个公开 feed 替代 |
+
+M1 使用可注入时钟和独立 UserDefaults 测试存储，覆盖到期前读回/到期后失效、限时覆盖、显式内存覆盖、onlyDisk、不限时重写和两次 JS 求值。修复仅调整缓存读写时的内存提升条件，不扩展缓存 API 或改变生产存储格式。最终验证应查询本分支对应修复提交的 [Build iOS IPA](https://github.com/DenisZheng/legado-ios/actions/workflows/build-ios.yml)。
+
+集合定位补充：在项目目录发现 Android `app/src/main/assets/defaultData/rssSources.json`，只有 4 条内置源，不能代替用户提供的 307 条集合。
 
 ## 平台资料
 
