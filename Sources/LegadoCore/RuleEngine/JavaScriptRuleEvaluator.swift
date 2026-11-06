@@ -577,6 +577,34 @@ public struct JavaScriptRuleEvaluator: Sendable {
         let setCookie: @convention(block) (String, String) -> Void = {
             LegadoCookieStore.shared.setCookie($1, for: $0)
         }
+        let cachePut: @convention(block) (String, Any?, Int) -> Void = { key, value, saveTime in
+            JavaScriptRuleCache.shared.put(key, value: Self.stringify(value), saveTime: saveTime)
+        }
+        let cacheGet: @convention(block) (String, Bool) -> String? = { key, onlyDisk in
+            JavaScriptRuleCache.shared.get(key, onlyDisk: onlyDisk)
+        }
+        let cachePutMemory: @convention(block) (String, Any?) -> Void = { key, value in
+            JavaScriptRuleCache.shared.putMemory(key, value: Self.stringify(value))
+        }
+        let cacheGetMemory: @convention(block) (String) -> String? = { key in
+            JavaScriptRuleCache.shared.getFromMemory(key)
+        }
+        let cacheDeleteMemory: @convention(block) (String) -> Void = { key in
+            JavaScriptRuleCache.shared.deleteMemory(key)
+        }
+        let cacheDelete: @convention(block) (String) -> Void = { key in
+            JavaScriptRuleCache.shared.delete(key)
+        }
+        let cachePutFile: @convention(block) (String, Any?, Int) -> Void = { key, value, saveTime in
+            do {
+                try JavaScriptRuleCache.shared.putFile(key, value: Self.stringify(value), saveTime: saveTime)
+            } catch {
+                DiagnosticLog.shared.record(category: "JS cache", message: error.localizedDescription)
+            }
+        }
+        let cacheGetFile: @convention(block) (String) -> String? = { key in
+            JavaScriptRuleCache.shared.getFile(key)
+        }
         let toURL: @convention(block) (String, String) -> [String: Any] = { rawURL, rawBaseURL in
             let baseText = rawBaseURL.isEmpty ? executionContext.baseURL : rawBaseURL
             let baseURL = baseText.isEmpty ? nil : URL(string: baseText)
@@ -723,6 +751,14 @@ public struct JavaScriptRuleEvaluator: Sendable {
         java?.setObject(getCookieHeader, forKeyedSubscript: "getCookieHeader" as NSString)
         java?.setObject(getCookieValue, forKeyedSubscript: "__getCookieValue" as NSString)
         java?.setObject(setCookie, forKeyedSubscript: "setCookie" as NSString)
+        java?.setObject(cachePut, forKeyedSubscript: "__cachePut" as NSString)
+        java?.setObject(cacheGet, forKeyedSubscript: "__cacheGet" as NSString)
+        java?.setObject(cachePutMemory, forKeyedSubscript: "__cachePutMemory" as NSString)
+        java?.setObject(cacheGetMemory, forKeyedSubscript: "__cacheGetMemory" as NSString)
+        java?.setObject(cacheDeleteMemory, forKeyedSubscript: "__cacheDeleteMemory" as NSString)
+        java?.setObject(cacheDelete, forKeyedSubscript: "__cacheDelete" as NSString)
+        java?.setObject(cachePutFile, forKeyedSubscript: "__cachePutFile" as NSString)
+        java?.setObject(cacheGetFile, forKeyedSubscript: "__cacheGetFile" as NSString)
         java?.setObject(toURL, forKeyedSubscript: "__toURL" as NSString)
         java?.setObject(ajax, forKeyedSubscript: "ajax" as NSString)
         java?.setObject(ajaxAll, forKeyedSubscript: "ajaxAll" as NSString)
@@ -848,6 +884,36 @@ public struct JavaScriptRuleEvaluator: Sendable {
                   : java.__getCookieValue(String(tag), String(key));
               };
               java.getSource = function () { return typeof source === 'undefined' ? null : source; };
+              var cache = {
+                put: function (key, value, saveTime) {
+                  java.__cachePut(String(key), value, Math.max(0, Number(saveTime) || 0));
+                },
+                get: function (key, onlyDisk) {
+                  var value = java.__cacheGet(String(key), Boolean(onlyDisk));
+                  return value == null ? null : value;
+                },
+                putMemory: function (key, value) {
+                  java.__cachePutMemory(String(key), value);
+                },
+                getFromMemory: function (key) {
+                  var value = java.__cacheGetMemory(String(key));
+                  return value == null ? null : value;
+                },
+                deleteMemory: function (key) {
+                  java.__cacheDeleteMemory(String(key));
+                },
+                delete: function (key) {
+                  java.__cacheDelete(String(key));
+                },
+                putFile: function (key, value, saveTime) {
+                  java.__cachePutFile(String(key), value, Math.max(0, Number(saveTime) || 0));
+                },
+                getFile: function (key) {
+                  var value = java.__cacheGetFile(String(key));
+                  return value == null ? null : value;
+                }
+              };
+              globalThis.cache = cache;
               java.getWebViewUA = function () { return '\(LegadoURLBuilder.defaultUserAgent)'; };
               // Android exposes longToast separately from toast. The rule engine has no
               // foreground UI, so both are routed to the existing diagnostic logger.
