@@ -14,7 +14,7 @@ public enum RuleImportInput: Sendable, Equatable {
             value = String(value[start.upperBound..<value.index(before: value.endIndex)])
         }
         value = value.trimmingCharacters(in: CharacterSet(charactersIn: "*`<> \n\r\t"))
-        if let url = URL(string: value), url.scheme?.lowercased() == "legado" {
+        if let url = URL(string: value), ["legado", "yuedu"].contains(url.scheme?.lowercased() ?? "") {
             guard url.host?.lowercased() == "import", url.path.lowercased() == "/" + kind.lowercased(),
                   let src = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "src" })?.value,
                   !src.lowercased().hasPrefix("legado:") else {
