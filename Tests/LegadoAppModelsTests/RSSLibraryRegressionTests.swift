@@ -5,6 +5,34 @@ import LegadoCore
 
 @MainActor
 struct RSSLibraryRegressionTests {
+    @Test func importsRSSSourcesFromLocalJSONFile() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = try LegadoDatabase(url: directory.appendingPathComponent("rss.sqlite3"))
+        let fileURL = directory.appendingPathComponent("rssSources.json")
+        let json = """
+        [
+          {
+            "sourceUrl": "https://local-rss-import.test/feed",
+            "sourceName": "本地文件 RSS 测试",
+            "sourceGroup": "测试",
+            "enabled": true,
+            "type": 0
+          }
+        ]
+        """
+        try Data(json.utf8).write(to: fileURL)
+
+        let model = RSSLibraryModel(database: database)
+        await model.load()
+        await model.importFiles([fileURL])
+
+        #expect(model.errorMessage == nil)
+        #expect(model.sources.map(\\.sourceName) == ["本地文件 RSS 测试"])
+        #expect(model.successMessage?.contains("新增 1 个") == true)
+        #expect(try await database.loadRssSources().map(\\.sourceUrl) == ["https://local-rss-import.test/feed"])
+    }
+
     @Test func explicitContentRefreshReplacesTheExistingDescription() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
