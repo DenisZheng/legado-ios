@@ -1,0 +1,22 @@
+[
+  {
+    "sourceUrl": "https://sspai.com/feed",
+    "sourceName": "少数派",
+    "sourceGroup": "公开测试集",
+    "enabled": true,
+    "singleUrl": false,
+    "enableJs": false,
+    "loadWithBaseUrl": true,
+    "type": 0
+  },
+  {
+    "sourceUrl": "https://feed.iplaysoft.com/",
+    "sourceName": "异次元软件世界",
+    "sourceGroup": "公开测试集",
+    "enabled": true,
+    "singleUrl": false,
+    "enableJs": false,
+    "loadWithBaseUrl": true,
+    "type": 0
+  }
+]
