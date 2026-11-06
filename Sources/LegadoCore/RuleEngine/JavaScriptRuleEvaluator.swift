@@ -589,10 +589,10 @@ public struct JavaScriptRuleEvaluator: Sendable {
             for item in components.queryItems ?? [] {
                 params[item.name] = item.value ?? ""
             }
-            let origin = components.port.map { "\\(components.scheme ?? "")://\\(host):\\($0)" }
-                ?? "\\(components.scheme ?? "")://\\(host)"
+            let origin = components.port.map { "\(components.scheme ?? "")://\(host):\($0)" }
+                ?? "\(components.scheme ?? "")://\(host)"
             return [
-                "host": components.port.map { "\\(host):\\($0)" } ?? host,
+                "host": components.port.map { "\(host):\($0)" } ?? host,
                 "origin": origin,
                 "pathname": components.percentEncodedPath,
                 "href": url.absoluteString,
