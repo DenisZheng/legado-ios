@@ -309,7 +309,7 @@ private struct RSSStandaloneReaderView: View {
                 else if source.singleUrl { route = .start(.web(url: source.sourceUrl)) }
                 else if let mode = try? RSSStartPageResolver().resolve(source) { route = .start(mode) }
                 else { route = .sort(source) }
-            default: if let url, let target = URL(string: url) { UIApplication.shared.open(target) }
+            default: if let url { pendingExternalURL = Self.validatedExternalURL(url) }
             }
         }
     }
@@ -512,7 +512,7 @@ private struct RSSArticleDetailView: View {
                 else if source.singleUrl { nativeRoute = .start(.web(url: source.sourceUrl)) }
                 else if let mode = try? RSSStartPageResolver().resolve(source) { nativeRoute = .start(mode) }
                 else { nativeRoute = .sort(source) }
-            default: if let url, let target = URL(string: url) { UIApplication.shared.open(target) }
+            default: if let url { pendingExternalURL = Self.validatedExternalURL(url) }
             }
         case .download(let url, let fileName): nativeRoute = .download(url: url, fileName: fileName)
         }
