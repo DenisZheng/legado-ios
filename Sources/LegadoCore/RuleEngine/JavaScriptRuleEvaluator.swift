@@ -474,14 +474,37 @@ public struct JavaScriptRuleEvaluator: Sendable {
             }
             return title
         }
+        var activeContent = executionContext.content ?? result
+        var activeContext = executionContext
         let getStringBlock: @convention(block) (String, Any?, Bool) -> String = { rule, content, isURL in
-            let input = content.map(JSONValue.bridge) ?? executionContext.content ?? result
+            let input = content.map(JSONValue.bridge) ?? activeContent
             return (try? self.evaluateStringRule(
                 rule,
                 content: input,
                 isURL: isURL,
-                executionContext: executionContext
+                executionContext: activeContext
             )) ?? ""
+        }
+        let getStringListBlock: @convention(block) (String, Any?, Bool) -> [String] = { rule, content, isURL in
+            let input = content.map(JSONValue.bridge) ?? activeContent
+            return (try? self.evaluateStringRuleList(
+                rule,
+                content: input,
+                isURL: isURL,
+                executionContext: activeContext
+            )) ?? []
+        }
+        let getElementsBlock: @convention(block) (String, Any?) -> [String] = { rule, content in
+            let html = content.map(Self.stringify) ?? activeContent.stringValue
+            return (try? self.evaluateElementRule(rule, html: html, executionContext: activeContext)) ?? []
+        }
+        let setContentBlock: @convention(block) (Any?) -> String = { value in
+            let html = Self.stringify(value)
+            activeContent = .string(html)
+            activeContext.content = activeContent
+            context.setObject(html, forKeyedSubscript: "src" as NSString)
+            context.setObject(html, forKeyedSubscript: "result" as NSString)
+            return html
         }
         let md5Block: @convention(block) (String) -> String = { value in
             Insecure.MD5.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -656,6 +679,9 @@ public struct JavaScriptRuleEvaluator: Sendable {
         java?.setObject(putBlock, forKeyedSubscript: "put" as NSString)
         java?.setObject(putVolumeBlock, forKeyedSubscript: "putVolume" as NSString)
         java?.setObject(getStringBlock, forKeyedSubscript: "__getString" as NSString)
+        java?.setObject(getStringListBlock, forKeyedSubscript: "__getStringList" as NSString)
+        java?.setObject(getElementsBlock, forKeyedSubscript: "__getElements" as NSString)
+        java?.setObject(setContentBlock, forKeyedSubscript: "__setContent" as NSString)
         java?.setObject(md5Block, forKeyedSubscript: "md5Encode" as NSString)
         java?.setObject(base64Encode, forKeyedSubscript: "base64Encode" as NSString)
         java?.setObject(base64Decode, forKeyedSubscript: "base64Decode" as NSString)
@@ -708,12 +734,79 @@ public struct JavaScriptRuleEvaluator: Sendable {
                 }
                 return responseOf(java.__directRequest('GET', target, null, headers || {}, timeout));
               };
+              function htmlValue(value) {
+                if (value && typeof value.outerHtml === 'function') return value.outerHtml();
+                if (value && typeof value.html === 'function') return value.html();
+                return value;
+              }
               java.getString = function (rule, content, isUrl) {
+                var input = arguments.length < 2 || content == null ? src : htmlValue(content);
                 return java.__getString(
                   String(rule == null ? '' : rule),
-                  arguments.length < 2 || content == null ? src : content,
+                  input,
                   Boolean(isUrl)
                 );
+              };
+              java.getStringList = function (rule, content, isUrl) {
+                var input = arguments.length < 2 || content == null ? src : htmlValue(content);
+                return java.__getStringList(
+                  String(rule == null ? '' : rule),
+                  input,
+                  Boolean(isUrl)
+                );
+              };
+              function makeElement(html) {
+                return {
+                  html: function () { return html; },
+                  outerHtml: function () { return html; },
+                  text: function () { return java.getString('@text', html); },
+                  ownText: function () { return java.getString('@ownText', html); },
+                  attr: function (name) { return java.getString('@' + String(name), html); },
+                  select: function (selector) { return makeElements(java.__getElements(String(selector), html)); },
+                  getElementsByClass: function (names) {
+                    return this.select('.' + String(names).trim().split(/\\s+/).join('.'));
+                  },
+                  toString: function () { return html; }
+                };
+              }
+              function makeElements(values) {
+                var items = (values || []).map(makeElement);
+                items.first = function () { return items.length ? items[0] : null; };
+                items.last = function () { return items.length ? items[items.length - 1] : null; };
+                items.get = function (index) { return items[index] || null; };
+                items.size = function () { return items.length; };
+                items.select = function (selector) {
+                  var selected = [];
+                  items.forEach(function (item) {
+                    selected = selected.concat(java.__getElements(String(selector), item.outerHtml()));
+                  });
+                  return makeElements(selected);
+                };
+                items.getElementsByClass = function (names) {
+                  return this.select('.' + String(names).trim().split(/\\s+/).join('.'));
+                };
+                items.text = function () {
+                  return items.map(function (item) { return item.text(); }).filter(Boolean).join(' ');
+                };
+                items.html = function () {
+                  return items.map(function (item) { return item.html(); }).join('');
+                };
+                items.attr = function (name) {
+                  return items.length ? items[0].attr(name) : '';
+                };
+                items.toString = function () {
+                  return items.map(function (item) { return item.outerHtml(); }).join('');
+                };
+                return items;
+              }
+              java.getElements = function (rule, content) {
+                var input = arguments.length < 2 || content == null ? src : htmlValue(content);
+                return makeElements(java.__getElements(String(rule), input));
+              };
+              java.getElement = java.getElements;
+              java.setContent = function (content) {
+                var input = htmlValue(content);
+                return java.__setContent(String(input == null ? '' : input));
               };
               java.head = function (url, headers, timeout) {
                 return responseOf(java.__directRequest('HEAD', String(url), null, headers || {}, timeout));
@@ -1007,6 +1100,127 @@ public struct JavaScriptRuleEvaluator: Sendable {
         context.setObject(chapter?.title ?? "", forKeyedSubscript: "title" as NSString)
     }
 
+    private func evaluateElementRule(
+        _ rule: String,
+        html: String,
+        executionContext: RuleExecutionContext
+    ) throws -> [String] {
+        let plan = try RuleExpressionParser().parse(rule)
+        var branchResults: [[String]] = []
+        for branch in plan.branches {
+            let values: [String]
+            switch branch.mode {
+            case .css:
+                values = try HTMLRuleEvaluator().selectCSSFragments(
+                    branch.expression,
+                    html: html,
+                    baseURL: executionContext.baseURL,
+                    isFragment: executionContext.isHTMLFragment
+                )
+            case .xpath:
+                values = try HTMLRuleEvaluator().selectXPathFragments(
+                    branch.expression,
+                    html: html,
+                    isFragment: executionContext.isHTMLFragment
+                )
+            default:
+                throw RuleEngineError.unsupportedRule(rule: branch.expression, feature: "java.getElements 仅支持 CSS/XPath 选择器")
+            }
+            branchResults.append(values)
+            if plan.combination == .fallback, !values.isEmpty { break }
+        }
+        switch plan.combination {
+        case .single, .concatenate:
+            return branchResults.flatMap { $0 }
+        case .fallback:
+            return branchResults.first(where: { !$0.isEmpty }) ?? []
+        case .interleave:
+            guard let count = branchResults.first?.count else { return [] }
+            return (0..<count).flatMap { index in
+                branchResults.compactMap { $0.indices.contains(index) ? $0[index] : nil }
+            }
+        }
+    }
+
+    private func evaluateStringRuleList(
+        _ rule: String,
+        content: JSONValue,
+        isURL: Bool,
+        executionContext: RuleExecutionContext
+    ) throws -> [String] {
+        let trimmedRule = rule.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRule.isEmpty else { return [] }
+        if case .object(let object) = content, let direct = object[trimmedRule] {
+            let values: [String]
+            if case .array(let items) = direct { values = items.map(\.stringValue) }
+            else { values = [direct.stringValue] }
+            return values.map { resolveJavaScriptRuleURL($0, enabled: isURL, context: executionContext) }
+        }
+
+        let jsonContent: JSONValue?
+        if case .string(let text) = content { jsonContent = try? JSONValue.decode(data: Data(text.utf8)) }
+        else { jsonContent = content }
+        let plan = try RuleExpressionParser().parse(trimmedRule, inputLooksLikeJSON: jsonContent != nil)
+        var branchResults: [[String]] = []
+        for branch in plan.branches {
+            var values: [String]
+            if branch.expression.isEmpty {
+                values = [content.stringValue]
+            } else {
+                switch branch.mode {
+                case .css:
+                    values = try HTMLRuleEvaluator().extractCSS(
+                        branch.expression,
+                        html: content.stringValue,
+                        baseURL: executionContext.baseURL,
+                        isFragment: executionContext.isHTMLFragment
+                    )
+                case .xpath:
+                    values = try HTMLRuleEvaluator().extractXPath(
+                        branch.expression,
+                        html: content.stringValue,
+                        isFragment: executionContext.isHTMLFragment
+                    )
+                case .jsonPath:
+                    let json: JSONValue
+                    if case .string(let text) = content { json = try JSONValue.decode(data: Data(text.utf8)) }
+                    else { json = content }
+                    values = RuleEvaluation(values: try JSONPathEvaluator().evaluateRule(branch.expression, in: json)).strings
+                case .regex:
+                    values = try RegexEvaluator().captureGroups(pattern: branch.expression, input: content.stringValue)
+                        .map { $0.count > 1 ? $0.dropFirst().joined() : $0.first ?? "" }
+                case .javaScript:
+                    var nestedContext = executionContext
+                    nestedContext.content = content
+                    values = [try evaluate(script: branch.expression, result: content, executionContext: nestedContext).value.stringValue]
+                case .webJavaScript:
+                    throw RuleEngineError.unsupportedRule(rule: branch.expression, feature: "java.getStringList WebView JavaScript")
+                }
+            }
+            if let pattern = branch.replacePattern, !pattern.isEmpty {
+                values = try values.map {
+                    try RegexEvaluator().replacing(pattern: pattern, in: $0, with: branch.replacement, firstOnly: branch.replaceFirst)
+                }
+            }
+            branchResults.append(values)
+            if plan.combination == .fallback, !values.isEmpty { break }
+        }
+
+        let combined: [String]
+        switch plan.combination {
+        case .single, .concatenate:
+            combined = branchResults.flatMap { $0 }
+        case .fallback:
+            combined = branchResults.first(where: { !$0.isEmpty }) ?? []
+        case .interleave:
+            guard let count = branchResults.first?.count else { return [] }
+            combined = (0..<count).flatMap { index in
+                branchResults.compactMap { $0.indices.contains(index) ? $0[index] : nil }
+            }
+        }
+        return combined.map { resolveJavaScriptRuleURL($0, enabled: isURL, context: executionContext) }
+    }
+
     private func evaluateStringRule(
         _ rule: String,
         content: JSONValue,
@@ -1053,10 +1267,12 @@ public struct JavaScriptRuleEvaluator: Sendable {
                     values = try RegexEvaluator().captureGroups(pattern: branch.expression, input: content.stringValue)
                         .map { $0.count > 1 ? $0.dropFirst().joined() : $0.first ?? "" }
                 case .javaScript:
+                    var nestedContext = executionContext
+                    nestedContext.content = content
                     values = [try evaluate(
                         script: branch.expression,
                         result: content,
-                        executionContext: executionContext
+                        executionContext: nestedContext
                     ).value.stringValue]
                 case .webJavaScript:
                     throw RuleEngineError.unsupportedRule(rule: branch.expression, feature: "java.getString WebView JavaScript")
@@ -1271,13 +1487,110 @@ public struct JavaScriptRuleEvaluator: Sendable {
             parseBase64Binary: function (value) { return __legadoBase64DecodeBytes(NativeString(value)); },
             printHexBinary: function (bytes) { return __legadoHexEncodeBytes(checkedBytes(bytes)); }
           });
+          function makeElement(html) {
+            return {
+              html: function () { return html; },
+              outerHtml: function () { return html; },
+              text: function () { return global.java.getString('@text', html); },
+              ownText: function () { return global.java.getString('@ownText', html); },
+              attr: function (name) { return global.java.getString('@' + NativeString(name), html); },
+              select: function (selector) { return makeElements(global.java.__getElements(NativeString(selector), html)); },
+              getElementsByClass: function (names) {
+                return this.select('.' + NativeString(names).trim().split(/\\s+/).join('.'));
+              },
+              toString: function () { return html; }
+            };
+          }
+          function makeElements(values) {
+            var items = (values || []).map(makeElement);
+            items.first = function () { return items.length ? items[0] : null; };
+            items.last = function () { return items.length ? items[items.length - 1] : null; };
+            items.get = function (index) { return items[index] || null; };
+            items.size = function () { return items.length; };
+            items.select = function (selector) {
+              var selected = [];
+              items.forEach(function (item) {
+                selected = selected.concat(global.java.__getElements(NativeString(selector), item.outerHtml()));
+              });
+              return makeElements(selected);
+            };
+            items.getElementsByClass = function (names) {
+              return this.select('.' + NativeString(names).trim().split(/\\s+/).join('.'));
+            };
+            items.text = function () {
+              return items.map(function (item) { return item.text(); }).filter(Boolean).join(' ');
+            };
+            items.html = function () {
+              return items.map(function (item) { return item.html(); }).join('');
+            };
+            items.attr = function (name) {
+              return items.length ? items[0].attr(name) : '';
+            };
+            items.toString = function () {
+              return items.map(function (item) { return item.outerHtml(); }).join('');
+            };
+            return items;
+          }
+          function makeDocument(html) {
+            return {
+              select: function (selector) { return makeElements(global.java.__getElements(NativeString(selector), html)); },
+              getElementsByClass: function (names) {
+                return makeElements(global.java.__getElements('.' + NativeString(names).trim().split(/\\s+/).join('.'), html));
+              },
+              getElementsByTag: function (name) {
+                return makeElements(global.java.__getElements(NativeString(name), html));
+              },
+              text: function () { return global.java.getString('@text', html); },
+              html: function () { return html; },
+              toString: function () { return html; }
+            };
+          }
+          var Connection = javaClass('Connection', { Method: { GET: 'GET', HEAD: 'HEAD', POST: 'POST' } });
+          var Jsoup = javaClass('Jsoup', {
+            parse: function (html) { return makeDocument(NativeString(html == null ? '' : html)); },
+            connect: function (rawURL) {
+              var method = 'GET';
+              var timeout = 30000;
+              var connection = {
+                method: function (value) { method = NativeString(value); return connection; },
+                timeout: function (value) { timeout = Number(value) || timeout; return connection; },
+                ignoreHttpErrors: function () { return connection; },
+                ignoreContentType: function () { return connection; },
+                followRedirects: function () { return connection; },
+                execute: function () {
+                  if (method.toUpperCase() === 'HEAD') {
+                    var head = global.java.head(rawURL, {}, timeout);
+                    return { body: function () { return head.body(); }, statusCode: function () { return head.statusCode(); }, header: function (name) { return head.header(name); } };
+                  }
+                  if (method.toUpperCase() === 'POST') {
+                    var post = global.java.post(rawURL, '', {}, timeout);
+                    return { body: function () { return post.body(); }, statusCode: function () { return post.statusCode(); }, header: function (name) { return post.header(name); } };
+                  }
+                  var response = global.java.connect(rawURL, {}, timeout);
+                  return {
+                    body: function () { return response.body; },
+                    statusCode: function () { return response.code; },
+                    header: function (name) {
+                      var wanted = NativeString(name).toLowerCase();
+                      for (var key in response.headers) if (key.toLowerCase() === wanted) return response.headers[key];
+                      return null;
+                    }
+                  };
+                },
+                get: function () { return makeDocument(connection.execute().body()); },
+                post: function () { method = 'POST'; return makeDocument(connection.execute().body()); }
+              };
+              return connection;
+            }
+          });
           var packages = {
             javax: {
               crypto: { Mac: Mac, Cipher: Cipher, spec: { SecretKeySpec: SecretKeySpec, IvParameterSpec: IvParameterSpec } },
               xml: { bind: { DatatypeConverter: DatatypeConverter } }
             },
             java: { net: { URLEncoder: URLEncoder }, lang: { String: JavaString }, util: { Base64: Base64, Arrays: Arrays } },
-            android: { util: { Base64: Base64 } }
+            android: { util: { Base64: Base64 } },
+            org: { jsoup: { Jsoup: Jsoup, Connection: Connection } }
           };
           Object.freeze(packages.javax.crypto.spec);
           Object.freeze(packages.javax.crypto);
@@ -1290,11 +1603,15 @@ public struct JavaScriptRuleEvaluator: Sendable {
           Object.freeze(packages.java);
           Object.freeze(packages.android.util);
           Object.freeze(packages.android);
+          Object.freeze(packages.org.jsoup);
+          Object.freeze(packages.org);
           global.Packages = Object.freeze(packages);
+          global.org = packages.org;
           global.JavaImporter = Object.freeze(function () {
             var imported = Object.create(null);
             var allowedPackages = [packages.java.lang, packages.java.net, packages.java.util,
-              packages.javax.crypto, packages.javax.crypto.spec, packages.javax.xml.bind, packages.android.util];
+              packages.javax.crypto, packages.javax.crypto.spec, packages.javax.xml.bind, packages.android.util,
+              packages.org.jsoup];
             function addClass(value) {
               if (!value || typeof value.__javaSimpleName !== 'string') throw new TypeError('Unsupported Java class import');
               if (!Object.prototype.hasOwnProperty.call(imported, value.__javaSimpleName)) {
