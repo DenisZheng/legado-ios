@@ -91,6 +91,11 @@ struct RSSWebReaderView: UIViewRepresentable {
               const native = (action, payload) => window.webkit.messageHandlers.legado.postMessage(Object.assign({action}, payload || {}));
               const get = key => window.prompt('__legado_get__', String(key)) || '';
               const put = (key, value) => { value = String(value ?? ''); native('put', {key:String(key), value}); return value; };
+              const nativeCall = (name, payload) => {
+                const raw = window.prompt(name, JSON.stringify(payload || {}));
+                if (raw == null || raw === '') return null;
+                try { return JSON.parse(raw); } catch (_) { return raw; }
+              };
               const ruleCall = payload => {
                 const result = window.prompt('__legado_rule__', JSON.stringify(payload));
                 if (result == null || result === '') return null;
@@ -108,6 +113,33 @@ struct RSSWebReaderView: UIViewRepresentable {
               window.java = window.java || {};
               java.get = get; java.put = put;
               java.getSource = () => window.source; java.getTag = () => \(Self.jsString(source.sourceName));
+              window.cache = {
+                put(key, value, saveTime) { nativeCall('__legado_cache__', {op:'put', key:String(key), value, saveTime:Number(saveTime) || 0}); },
+                get(key, onlyDisk) { return nativeCall('__legado_cache__', {op:'get', key:String(key), onlyDisk:!!onlyDisk}); },
+                putMemory(key, value) { nativeCall('__legado_cache__', {op:'putMemory', key:String(key), value}); },
+                getFromMemory(key) { return nativeCall('__legado_cache__', {op:'getFromMemory', key:String(key)}); },
+                deleteMemory(key) { nativeCall('__legado_cache__', {op:'deleteMemory', key:String(key)}); },
+                delete(key) { nativeCall('__legado_cache__', {op:'delete', key:String(key)}); },
+                putFile(key, value, saveTime) { nativeCall('__legado_cache__', {op:'putFile', key:String(key), value, saveTime:Number(saveTime) || 0}); },
+                getFile(key) { return nativeCall('__legado_cache__', {op:'getFile', key:String(key)}); }
+              };
+              window.cookie = {
+                getCookie(url) { return nativeCall('__legado_cookie__', {op:'get', url:String(url)}); },
+                getKey(url, key) { return nativeCall('__legado_cookie__', {op:'getKey', url:String(url), key:String(key)}); },
+                setCookie(url, value) { nativeCall('__legado_cookie__', {op:'set', url:String(url), value:String(value)}); },
+                removeCookie(url) { nativeCall('__legado_cookie__', {op:'remove', url:String(url)}); },
+                cookieToMap(header) {
+                  const map = {};
+                  String(header || '').split(';').forEach(part => {
+                    const index = part.indexOf('=');
+                    if (index > 0) map[part.slice(0, index).trim()] = part.slice(index + 1).trim();
+                  });
+                  return map;
+                },
+                mapToCookie(map) {
+                  return Object.keys(map || {}).map(key => key + '=' + map[key]).join('; ');
+                }
+              };
               java.showPhoto = src => native('showPhoto', {url:String(src)});
               java.addBook = url => native('addBook', {url:String(url)});
               java.searchBook = (key, scope) => native('searchBook', {key:String(key), scope:scope == null ? null : String(scope)});
@@ -222,7 +254,78 @@ struct RSSWebReaderView: UIViewRepresentable {
                 completionHandler(BookSourceRuntimeStore.shared.get(sourceID: source.sourceUrl, key: defaultText ?? ""))
             } else if prompt == "__legado_rule__" {
                 handleRulePrompt(defaultText, completionHandler: completionHandler)
+            } else if prompt == "__legado_cache__" {
+                handleCachePrompt(defaultText, completionHandler: completionHandler)
+            } else if prompt == "__legado_cookie__" {
+                handleCookiePrompt(defaultText, completionHandler: completionHandler)
             } else { completionHandler(defaultText) }
+        }
+
+        private func handleCachePrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
+            guard let payload, let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let operation = object["op"] as? String,
+                  let key = object["key"] as? String else {
+                completionHandler("null")
+                return
+            }
+            let value = object["value"].map { String(describing: $0) } ?? ""
+            let cache = JavaScriptRuleCache.shared
+            switch operation {
+            case "put":
+                cache.put(key, value: value, saveTime: max(0, object["saveTime"] as? Int ?? 0))
+                completionHandler("true")
+            case "get":
+                let result = cache.get(key, onlyDisk: object["onlyDisk"] as? Bool == true)
+                completionHandler(Self.json(result as Any? ?? NSNull()))
+            case "putMemory":
+                cache.putMemory(key, value: value)
+                completionHandler("true")
+            case "getFromMemory":
+                completionHandler(Self.json(cache.getFromMemory(key) as Any? ?? NSNull()))
+            case "deleteMemory":
+                cache.deleteMemory(key)
+                completionHandler("true")
+            case "delete":
+                cache.delete(key)
+                completionHandler("true")
+            case "putFile":
+                do {
+                    try cache.putFile(key, value: value, saveTime: max(0, object["saveTime"] as? Int ?? 0))
+                    completionHandler("true")
+                } catch {
+                    completionHandler(Self.json(["error": error.localizedDescription]))
+                }
+            case "getFile":
+                completionHandler(Self.json(cache.getFile(key) as Any? ?? NSNull()))
+            default:
+                completionHandler("null")
+            }
+        }
+
+        private func handleCookiePrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
+            guard let payload, let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let operation = object["op"] as? String,
+                  let url = object["url"] as? String else {
+                completionHandler("null")
+                return
+            }
+            let cookies = LegadoCookieStore.shared
+            switch operation {
+            case "get":
+                completionHandler(Self.json(cookies.cookieHeader(for: url)))
+            case "getKey":
+                completionHandler(Self.json(cookies.cookie(for: url, key: object["key"] as? String ?? "")))
+            case "set":
+                cookies.setCookie(object["value"] as? String ?? "", for: url)
+                completionHandler("true")
+            case "remove":
+                cookies.removeCookies(for: url)
+                completionHandler("true")
+            default:
+                completionHandler("null")
+            }
         }
 
         private func handleRulePrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
