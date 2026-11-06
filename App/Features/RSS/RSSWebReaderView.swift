@@ -199,13 +199,13 @@ struct RSSWebReaderView: UIViewRepresentable {
             case "openBrowser":
                 if let raw = body["url"] as? String,
                    let url = URL(string: raw),
-                   ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                   ["http", "https", "legado", "yuedu"].contains(url.scheme?.lowercased() ?? "") {
                     DispatchQueue.main.async { self.onAction(.openBrowser(raw)) }
                 }
             case "openExternal":
                 if let raw = body["url"] as? String,
                    let url = URL(string: raw),
-                   ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                   ["http", "https", "legado", "yuedu"].contains(url.scheme?.lowercased() ?? "") {
                     DispatchQueue.main.async { self.onAction(.openExternal(raw)) }
                 }
             case "message":
