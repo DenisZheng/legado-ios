@@ -32,6 +32,13 @@ struct RSSRegressionTests {
         }
     }
 
+    @Test func remoteRSSWebModeDoesNotReceivePrivilegedNativeBridge() {
+        #expect(RSSReadingMode.web(url: "https://article.example.test/").allowsNativeBridge == false)
+        #expect(RSSReadingMode.html(content: "<p>trusted parsed content</p>", baseURL: nil).allowsNativeBridge)
+        #expect(RSSReadingMode.startHTML(content: "<html></html>", baseURL: nil).allowsNativeBridge)
+        #expect(RSSReadingMode.video(url: "https://cdn.example.test/video.m3u8").allowsNativeBridge)
+    }
+
     @Test func concurrentSourceTogglesDoNotOverwriteOneAnother() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
