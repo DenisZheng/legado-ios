@@ -1,7 +1,18 @@
-name: Build iOS IPA
+name: iOS Build and Test
+run-name: iOS ${{ inputs.mode || 'test' }} · ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "build：仅编译；test：核心与 RSS 回归；ipa：回归后打包"
+        required: true
+        default: build
+        type: choice
+        options:
+          - build
+          - test
+          - ipa
   push:
     paths:
       - "App/**"
@@ -18,7 +29,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ios-build-${{ github.ref }}
+  group: ios-build-${{ github.ref }}-${{ inputs.mode || 'test' }}
   cancel-in-progress: true
 
 jobs:
@@ -35,6 +46,15 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Validate build mode
+        env:
+          BUILD_MODE: ${{ inputs.mode || 'test' }}
+        run: |
+          case "$BUILD_MODE" in
+            build|test|ipa) echo "Mode: $BUILD_MODE" ;;
+            *) echo "Unsupported build mode: $BUILD_MODE" >&2; exit 2 ;;
+          esac
+
       - name: Resolve Xcode dependencies
         run: |
           xcodebuild -resolvePackageDependencies \
@@ -42,9 +62,24 @@ jobs:
             -scheme Legado
 
       - name: Run core tests
+        if: inputs.mode != 'build'
         run: swift test --disable-sandbox
 
+      - name: Build iOS app without packaging
+        if: inputs.mode == 'build'
+        run: |
+          xcodebuild \
+            -project Legado.xcodeproj \
+            -scheme Legado \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
       - name: Run RSS UI regression tests
+        id: rss-tests
+        if: inputs.mode != 'build'
         run: |
           python3 scripts/fixtures/rss-flow-server.py > "$RUNNER_TEMP/rss-fixture.log" 2>&1 &
           SERVER_PID=$!
@@ -78,6 +113,7 @@ jobs:
           PY
           )"
           test -n "$DEVICE_ID"
+          printf '%s\n' "$DEVICE_ID" > "$RUNNER_TEMP/rss-test-device.txt"
           xcrun simctl boot "$DEVICE_ID"
           xcrun simctl bootstatus "$DEVICE_ID" -b
           sh scripts/prepare-source-import-fixture.sh "$DEVICE_ID"
@@ -92,8 +128,23 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             test
 
+      - name: Run RSS WebView bridge tests
+        if: inputs.mode != 'build'
+        run: |
+          DEVICE_ID="$(cat "$RUNNER_TEMP/rss-test-device.txt")"
+          xcodebuild \
+            -project Legado.xcodeproj \
+            -scheme LegadoReaderTests \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -only-testing:LegadoReaderTests/WebReaderBridgeTests \
+            -parallel-testing-enabled NO \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/RSSBridge.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
       - name: Collect RSS UI failure diagnostics
-        if: failure()
+        if: failure() && steps.rss-tests.outcome != 'skipped'
         run: |
           xcrun simctl list devices booted --json > "$RUNNER_TEMP/rss-simulators.json"
           python3 -c 'import json,sys; print("\n".join(d["udid"] for devices in json.load(sys.stdin)["devices"].values() for d in devices))' \
@@ -108,12 +159,13 @@ jobs:
           done < "$RUNNER_TEMP/rss-simulator-ids.txt"
 
       - name: Upload RSS UI failure diagnostics
-        if: failure()
+        if: failure() && steps.rss-tests.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: rss-ui-failure-diagnostics
           path: |
             ${{ runner.temp }}/RSSFlow.xcresult
+            ${{ runner.temp }}/RSSBridge.xcresult
             ${{ runner.temp }}/rss-fixture.log
             ${{ runner.temp }}/rss-simulators.json
             ${{ runner.temp }}/rss-simulator-*.log
@@ -121,6 +173,7 @@ jobs:
           retention-days: 7
 
       - name: Archive unsigned iOS app
+        if: inputs.mode == 'ipa'
         run: |
           xcodebuild \
             -project Legado.xcodeproj \
@@ -133,6 +186,7 @@ jobs:
             archive
 
       - name: Package unsigned IPA
+        if: inputs.mode == 'ipa'
         run: |
           APP_PATH="$RUNNER_TEMP/Legado.xcarchive/Products/Applications/Legado.app"
           test -d "$APP_PATH"
@@ -145,6 +199,7 @@ jobs:
           shasum -a 256 "$RUNNER_TEMP/Legado-unsigned.ipa" > "$RUNNER_TEMP/Legado-unsigned.ipa.sha256"
 
       - name: Upload IPA artifact
+        if: inputs.mode == 'ipa'
         uses: actions/upload-artifact@v4
         with:
           name: legado-ios-unsigned-ipa
