@@ -220,8 +220,8 @@ struct JavaScriptRuleEvaluatorTests {
 
     @Test func supportsAndroidRSSGetElementsSetContentAndGetStringList() throws {
         let html = #"""
-            <div class="authorname">甲<font>№1</font><div>作者甲</div></div>
-            <div class="authorname">乙<font>№2</font><div>作者乙</div></div>
+            <section class="authorname">甲<font>№1</font><div>作者甲</div></section>
+            <section class="authorname">乙<font>№2</font><div>作者乙</div></section>
             """#
         let script = #"""
             var numbers = java.getStringList("@@class.authorname@font.0@text");
