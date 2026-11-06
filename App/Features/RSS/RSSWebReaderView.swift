@@ -486,12 +486,23 @@ struct RSSWebReaderView: UIViewRepresentable {
             if !["http", "https", "file", "data", "about"].contains(scheme) {
                 UIApplication.shared.open(url); decisionHandler(.cancel); return
             }
-            if bridgeEnabled, navigationAction.targetFrame?.isMainFrame != false,
-               ["http", "https"].contains(scheme),
-               Self.webOrigin(url) != trustedMainFrameOrigin {
-                decisionHandler(.cancel)
-                DispatchQueue.main.async { self.onAction(.openBrowser(url.absoluteString)) }
-                return
+            if bridgeEnabled, navigationAction.targetFrame?.isMainFrame != false {
+                if scheme == "about", url.absoluteString == "about:blank" {
+                    decisionHandler(.allow)
+                    return
+                }
+                if ["http", "https"].contains(scheme),
+                   Self.webOrigin(url) != trustedMainFrameOrigin {
+                    decisionHandler(.cancel)
+                    DispatchQueue.main.async { self.onAction(.openBrowser(url.absoluteString)) }
+                    return
+                }
+                if !["http", "https"].contains(scheme) {
+                    // data:/file: documents can execute attacker-controlled script in the
+                    // main frame, so never let them inherit the privileged source bridge.
+                    decisionHandler(.cancel)
+                    return
+                }
             }
             if navigationAction.navigationType == .linkActivated, shouldOverride(url.absoluteString) {
                 decisionHandler(.cancel); return
