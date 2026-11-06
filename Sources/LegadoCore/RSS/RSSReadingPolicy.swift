@@ -15,6 +15,10 @@ public extension RSSReadingMode {
         if case .web = self { return false }
         return true
     }
+
+    func allowsNativeBridge(for source: RssSource) -> Bool {
+        allowsNativeBridge && source.preloadJs?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
 }
 
 
