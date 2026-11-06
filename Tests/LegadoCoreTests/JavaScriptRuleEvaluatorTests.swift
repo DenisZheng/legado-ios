@@ -265,7 +265,7 @@ struct JavaScriptRuleEvaluatorTests {
                   parsed.href + '|' + parsed.toString();
                 """,
             result: .null,
-            executionContext: .init(source: source, baseURL: source.bookSourceUrl)
+            executionContext: .init(baseURL: source.bookSourceUrl, source: source)
         )
         #expect(value.value.stringValue == "rss.example.test|https://rss.example.test|/feed/list|2|中文|https://rss.example.test/feed/list?page=2&keyword=%E4%B8%AD%E6%96%87|https://rss.example.test/feed/list?page=2&keyword=%E4%B8%AD%E6%96%87")
     }
