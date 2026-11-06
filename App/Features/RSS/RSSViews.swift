@@ -261,6 +261,7 @@ private struct RSSStandaloneReaderView: View {
         case .searchBook(let key, _): route = .search(key)
         case .addBook(let value): route = .addBook(value)
         case .download(let url, let fileName): route = .download(url: url, fileName: fileName)
+        case .openBrowser(let value): route = .start(.web(url: value))
         case .openExternal(let value):
             if let url = URL(string: value) { UIApplication.shared.open(url) }
         case .message(let value): webMessage = value
@@ -423,6 +424,7 @@ private struct RSSArticleDetailView: View {
         case .showPhoto(let value): nativeRoute = .photo(value)
         case .searchBook(let key, _): nativeRoute = .search(key)
         case .addBook(let value): nativeRoute = .addBook(value)
+        case .openBrowser(let value): nativeRoute = .start(.web(url: value))
         case .openExternal(let value):
             if let url = URL(string: value) { UIApplication.shared.open(url) }
         case .message(let value): webMessage = value
