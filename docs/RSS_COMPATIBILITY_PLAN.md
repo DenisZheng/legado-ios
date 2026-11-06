@@ -127,7 +127,7 @@
 | 批次 | 状态 | 记录 |
 | --- | --- | --- |
 | M0 | 已完成文档 | 固定两个仓库的起点，建立任务与测试矩阵 |
-| M1 | 已实施，验收以修复提交 CI 为准 | 新增 5 项缓存回归及 1 项跨 JS 求值回归；旧实现 `a474da6` 在 [42211370651](https://github.com/DenisZheng/legado-ios/actions/runs/42211370651) 出现 3 项预期失败、4 个断言问题；随后修复限时条目进入永久内存缓存的问题，并补并发读写回归 |
+| M1 | 本批缓存回归通过 | 新增 5 项缓存回归及 1 项跨 JS 求值回归；旧实现 `a474da6` 在 [42211370651](https://github.com/DenisZheng/legado-ios/actions/runs/42211370651) 出现 3 项预期失败、4 个断言问题；修复后核心回归通过。范围为下文所列文本缓存期限行为，不包含负期限和文件缓存 |
 | M2～M6 | 未开始本轮实施 | 已有功能见快照表；不会将此前实现重复算为本轮交付 |
 | P3-02 | 本地清单已建立 | `rssSources-valid (1).json`：307 条且无重复；固定文件指纹并生成 2456 条逐阶段记录；Android/iOS 实际执行仍未进行 |
 | P3-03/04 | 待执行 | 逐源记录当前全部为 `NOT_RUN`；不能以 JSON 结构有效或静态引用统计替代真实规则执行 |
@@ -145,6 +145,10 @@ M1 验证补充：`1555ea3` 的 [运行 42212284372](https://github.com/DenisZhe
 本地文件链路补充：对照现有书源实现后，RSS 改为复用 `SourceFileImportPicker` 和 `SourceImportFile`：选择 `.item` 副本、回调时持有访问权限、通过 `NSFileCoordinator` 后台读取；文件返回和 sheet 关闭都完成后才启动导入。RSS 保留自身 JSON 解码、错误文案和持久化逻辑。原先仅凭 `asCopy: true` 就直接异步读取 URL 的实现未覆盖书源已有的完整时序。新增多文件/混合扩展名和失败不部分入库回归，RSS UI 增加取消后重开；RSS CI Scheme 同时加入现有书源 JSON 文件导入用例，以验证共享组件。此变更须由后续提交的 CI 验证，不能引用旧运行证明。
 
 `ce9e857` 的 [运行 42219274584](https://github.com/DenisZheng/legado-ios/actions/runs/42219274584) 通过 393 项核心回归，4 项 UI 中 2 项通过、2 项失败。书源丢失第二个文件，RSS 返回空文件列表，系统均记录文件 ID 不存在。该次全新模拟器实际为 iOS 26.4，不能认为仅换新设备已解决问题。`4edf2b9` 固定 iOS 26.2，并将样本放到 Files 自身的 `Legado Import Fixtures` 目录，通过原选择器和导入断言继续验证，结果以 [运行 42224416883](https://github.com/DenisZheng/legado-ios/actions/runs/42224416883) 为准。
+
+`4edf2b9` 的上述运行已完整通过：393 tests / 50 suites、4 项 UI 回归、Release Archive、未签名 IPA 打包及上传。书源多选、RSS 取消重开/文件导入、入口/默认页、搜索分页/正文刷新/收藏恢复均保留原有断言。CI 工具链为 Xcode 26.6（17F113），模拟器为 iPhone 17 Pro / iOS 26.2。固定 runtime 和改用 Files 本地夹具后的组合验证通过，不将其扩展为对 File Provider 内部根因的证明，也不代表 307 条实际源已执行。
+
+[IPA 产物](https://github.com/DenisZheng/legado-ios/actions/runs/42224416883/artifacts/13505788718) 为 0.1.14（20）、最低 iOS 15，下载后 SHA-256 和 ZIP 完整性校验通过。本地产物与校验记录位于 `artifacts/ci/run-42224416883-ipa/`，原始日志位于 `artifacts/ci/run-42224416883.log`。产物未签名，安装到真机需自行签名。此后的源清单脚本和文档提交不改变本次已验证的 App、核心包、UI 测试及工作流代码。
 
 ## 平台资料
 

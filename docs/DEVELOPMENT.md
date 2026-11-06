@@ -72,7 +72,9 @@ RSS 和书源现在共用 `SourceFileImportPicker`/`SourceImportFile`：选择�
 
 运行 `42219274584` 的 393 项核心测试通过；书源和 RSS 文件 UI 各失败一项。书源只收到了第一个文件，第二个文件的 `did=8` 无法解析；RSS 的 `did=4` 同样返回 `NSFileProviderErrorDomain -1005`。全新设备也发生此问题，说明仅隔离预置设备不足以解决。该运行因设备列表顺序选到了 iOS 26.4，后续 CI 明确固定 iPhone 17 Pro / iOS 26.2，避免混淆系统版本。
 
-准备脚本仍用独立应用生成 7 个样本，随后 `scripts/fixtures/stage-source-import-files.py` 将样本放入该模拟器的 Files 本地目录 `On My iPhone > Legado Import Fixtures`。测试从这一真实 Files 位置选择文件，继续验证跨容器副本导入；不直接调用应用导入方法，不修改文件提供器数据库。该方案针对共享应用目录的文件 ID 回传问题，是否解决须由后续 CI 验证。原始示例中的“书源导入测试”是生成样本的应用名称，当前回归选择的是 `Legado Import Fixtures` 文件夹。
+准备脚本仍用独立应用生成 7 个样本，随后 `scripts/fixtures/stage-source-import-files.py` 将样本放入该模拟器的 Files 本地目录 `On My iPhone > Legado Import Fixtures`。测试从这一真实 Files 位置选择文件，继续验证跨容器副本导入；不直接调用应用导入方法，不修改文件提供器数据库。`4edf2b9` 的运行 `42224416883` 已通过核心及 RSS UI 回归步骤，验证了固定 iOS 26.2 和 Files 本地夹具的组合；未据此证明 File Provider 内部根因或其他提供器行为。原始示例中的“书源导入测试”是生成样本的应用名称，当前回归选择的是 `Legado Import Fixtures` 文件夹。
+
+该运行最终通过 393 tests / 50 suites、4 项 UI 回归、Archive 和 IPA 上传。工具链为 Xcode 26.6（17F113），与固定的模拟器 runtime 分开记录。产物下载后 SHA-256 和 ZIP 完整性校验通过，版本 0.1.14（20）；未签名 IPA 需要签名后安装，不能把构建成功等同真实源或真机验证完成。
 
 RSS 的 Android 基准、P0～P3 任务依赖与验收标准见 [RSS 兼容实施计划](RSS_COMPATIBILITY_PLAN.md)，能力场景及真实源逐阶段记录规范见 [RSS 兼容验证矩阵](RSS_COMPATIBILITY_MATRIX.md)。实现状态和实测结果分别维护。
 

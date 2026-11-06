@@ -21,6 +21,7 @@
 | --- | --- | --- | --- |
 | `10afd1e` 核心/页面模型 | [CI 42206209681](https://github.com/DenisZheng/legado-ios/actions/runs/42206209681)，385 tests / 49 suites | 当前包回归通过 | 307 源可用、全部 WKWebView 集成通过 |
 | `10afd1e` RSS UI | 同一 CI，3 项通过 | 入口/默认页、Files 导入、搜索分页及阅读收藏的合成链路 | 线上登录、媒体播放、真机 Cookie 策略 |
+| `4edf2b9` 核心/RSS UI | [CI 42224416883](https://github.com/DenisZheng/legado-ios/actions/runs/42224416883)，393 tests / 50 suites、4 项 UI 全部通过；Archive/IPA 成功 | 缓存期限回归；共享选择器的书源多选、RSS 文件导入及已有 RSS 合成链路 | 307 源的真实规则执行、真机与其他文件提供器行为 |
 | 少数派/异次元公开 feed | [在线检查 42177537134](https://github.com/DenisZheng/legado-ios/actions/runs/42177537134)；[夹具说明](../Tests/LegadoCoreTests/Fixtures/RealWorldRSS/README.md) | 当次端点返回正常 RSS XML；合成 XML 可默认解析 | 用户完整规则、JS、正文或视频播放 |
 | `WebReaderBridgeTests` | 测试代码已存在 | 有可执行的页面变量/分析器回归 | 本轮 CI 未执行该 Scheme，不能标通过 |
 
@@ -106,7 +107,7 @@ RSS UI 本地服务、Files 夹具和完整验证见 [开发指南](DEVELOPMENT.
 | 场景 | 状态 | 证据 |
 | --- | --- | --- |
 | C01/C02 | 本批正整数期限/不限时契约回归通过 | `JavaScriptRuleCacheTests` 5 项及跨 JS 求值回归；[旧实现验证](https://github.com/DenisZheng/legado-ios/actions/runs/42211370651) 已复现过期仍返回旧值；`ce9e857` 的 [393 项核心回归](https://github.com/DenisZheng/legado-ios/actions/runs/42219274584) 通过。负期限和文件缓存仍按计划核对 |
-| 本地文件导入 | 核心通过，UI 未通过 | `ce9e857` 已复用书源链路；两条文件 UI 仍有系统文件 ID 回传失败。后续 `4edf2b9` 从 Files 本地目录重验，保留全部断言 |
+| 本地文件导入 | 核心和 UI 步骤通过 | `ce9e857` 已复用书源链路；`4edf2b9` 固定 iOS 26.2，从 Files 本地目录重验通过，保留书源多选、RSS 取消重开和导入成功断言 |
 | C03～C21 | 按各任务继续 | 既有测试见文件，不宣称完成本轮所有场景 |
 | 真实源逐条矩阵 | 2456 项均为 NOT_RUN | 已收到 307 条完整源；只完成结构/能力盘点，尚未执行 Android/iOS 规则与页面链路 |
 
@@ -140,6 +141,8 @@ RSS UI 本地服务、Files 夹具和完整验证见 [开发指南](DEVELOPMENT.
 | 任意 cache 方法 | 6 | P0-01/08，按文本、显式内存、文件分别选样 |
 
 `source.getVariable()` 的 102 处字面调用均无参数，且未发现同名的源内方法定义。Android `BaseSource` 的整段自定义变量与 `get(key)/put(key,value)` 为两个存储空间；当前 iOS `installSource` 未暴露这组方法，不能把现有 get/put 算成已兼容。`source.getLoginInfo`、`java.deviceID/digestHex/md5Encode16` 等各 1 条引用留作后续逐项契约核查。
+
+`RSSSortResolver.resolve` 当前只取规则结果字符串，不向页面传递求值诊断；没有解析出分类时会回退到 `sourceUrl`。因此调用缺失 API 的动态分类可能表现为分类消失或请求了源首页。C21 必须断言分类名称和最终 URL，不能只检查返回数组非空；此处为代码分析，尚无该集合的运行结果。
 
 可复现入口（输出目录必须为新目录，避免覆盖结果）：
 
