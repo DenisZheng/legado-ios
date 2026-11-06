@@ -1497,12 +1497,12 @@ public struct JavaScriptRuleEvaluator: Sendable {
               text: function () { return global.java.getString('@text', html); },
               ownText: function () { return global.java.getString('@ownText', html); },
               attr: function (name) {
-                var tag = (html.match(/^\\s*<([a-zA-Z][\\w:-]*)/) || [])[1];
+                var tag = (html.match(/^\s*<([a-zA-Z][\\w:-]*)/) || [])[1];
                 return tag ? global.java.getString(tag + '@' + NativeString(name), html) : '';
               },
               select: function (selector) { return makeElements(global.java.__getElements(NativeString(selector), html)); },
               getElementsByClass: function (names) {
-                return this.select('.' + NativeString(names).trim().split(/\\s+/).join('.'));
+                return this.select('.' + NativeString(names).trim().split(/\s+/).join('.'));
               },
               toString: function () { return html; }
             };
@@ -1521,7 +1521,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
               return makeElements(selected);
             };
             items.getElementsByClass = function (names) {
-              return this.select('.' + NativeString(names).trim().split(/\\s+/).join('.'));
+              return this.select('.' + NativeString(names).trim().split(/\s+/).join('.'));
             };
             items.text = function () {
               return items.map(function (item) { return item.text(); }).filter(Boolean).join(' ');
@@ -1541,7 +1541,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
             return {
               select: function (selector) { return makeElements(global.java.__getElements(NativeString(selector), html)); },
               getElementsByClass: function (names) {
-                return makeElements(global.java.__getElements('.' + NativeString(names).trim().split(/\\s+/).join('.'), html));
+                return makeElements(global.java.__getElements('.' + NativeString(names).trim().split(/\s+/).join('.'), html));
               },
               getElementsByTag: function (name) {
                 return makeElements(global.java.__getElements(NativeString(name), html));
