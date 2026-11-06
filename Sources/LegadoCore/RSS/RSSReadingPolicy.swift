@@ -8,6 +8,16 @@ public enum RSSReadingMode: Equatable, Sendable {
     case video(url: String)
 }
 
+public extension RSSReadingMode {
+    /// Remote article pages are untrusted origins and must never receive the
+    /// source's privileged JavaScript/native bridge.
+    var allowsNativeBridge: Bool {
+        if case .web = self { return false }
+        return true
+    }
+}
+
+
 public struct RSSReadingPolicy: Sendable {
     public init() {}
 
