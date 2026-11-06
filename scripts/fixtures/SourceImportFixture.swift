@@ -26,6 +26,16 @@ final class FixtureAppDelegate: UIResponder, UIApplicationDelegate {
                 try? writeFixture(data, to: documents.appendingPathComponent(name))
             }
         }
+        let rssSources: [[String: String]] = [[
+            "sourceUrl": "https://rss-file-import.test/feed",
+            "sourceName": "本地 RSS 文件导入测试",
+            "ruleArticles": "$.items",
+            "ruleTitle": "$.title",
+            "ruleLink": "$.link"
+        ]]
+        if let data = try? JSONSerialization.data(withJSONObject: rssSources) {
+            try? writeFixture(data, to: documents.appendingPathComponent("RSS-Source.json"))
+        }
         for name in ["TXT-Book.txt", "TXT-Uppercase.TXT"] {
             try? writeFixture(Data("第一章 开始\n这是用于验证本地 TXT 导入的小说正文。\n第二章 后续\n正文继续。".utf8),
                               to: documents.appendingPathComponent(name))
