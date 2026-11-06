@@ -7,6 +7,8 @@ on:
       - "App/**"
       - "Sources/**"
       - "Tests/**"
+      - "scripts/fixtures/**"
+      - "scripts/prepare-source-import-fixture.sh"
       - "Legado.xcodeproj/**"
       - "Package.swift"
       - "Package.resolved"
@@ -56,7 +58,7 @@ jobs:
           done
           curl -fsS http://127.0.0.1:18763/source.json > /dev/null
 
-          # 使用同一可用机型/runtime 创建独立设备，隔离镜像预置模拟器的 Files 索引。
+          # 固定系统和机型，避免镜像设备列表顺序改变导致跨 runtime 比较。
           DEVICE_ID="$(python3 - <<'PY'
           import json
           import subprocess
@@ -64,12 +66,11 @@ jobs:
           devices = json.loads(subprocess.check_output(
               ["xcrun", "simctl", "list", "devices", "available", "--json"]
           ))["devices"]
-          runtime, device_type = next(
-              (runtime, device["deviceTypeIdentifier"])
-              for runtime, entries in devices.items()
-              for device in entries
-              if device.get("isAvailable") and device["name"].startswith("iPhone")
-          )
+          runtime = "com.apple.CoreSimulator.SimRuntime.iOS-26-2"
+          device_type = "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro"
+          if not any(device.get("isAvailable") and device["deviceTypeIdentifier"] == device_type
+                     for device in devices.get(runtime, [])):
+              raise SystemExit("Required iPhone 17 Pro / iOS 26.2 simulator is unavailable")
           subprocess.run(
               ["xcrun", "simctl", "create", "Legado RSS CI", device_type, runtime],
               check=True

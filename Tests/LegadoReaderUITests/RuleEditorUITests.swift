@@ -111,7 +111,7 @@ final class RuleEditorUITests: XCTestCase {
 
     private func openSourceImportFixture(in app: XCUIApplication, targetFile: XCUIElement) {
         let fixtures = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label BEGINSWITH %@", "书源导入测试")
+            NSPredicate(format: "label BEGINSWITH %@", "Legado Import Fixtures")
         ).firstMatch
         if !targetFile.waitForExistence(timeout: 3) {
             let browse = app.buttons.matching(
@@ -195,7 +195,7 @@ final class RuleEditorUITests: XCTestCase {
         let pickerFiles = app.collectionViews["File View"].cells
         let txt = pickerFiles.matching(NSPredicate(format: "label BEGINSWITH %@", "TXT-Book")).firstMatch
         let fixtureJSON = pickerFiles.matching(NSPredicate(format: "label BEGINSWITH %@", "JSON-Source")).firstMatch
-        let fixtures = pickerFiles.matching(NSPredicate(format: "label BEGINSWITH %@", "书源导入测试")).firstMatch
+        let fixtures = pickerFiles.matching(NSPredicate(format: "label BEGINSWITH %@", "Legado Import Fixtures")).firstMatch
         // The file-management page underneath the picker can also contain TXT.
         // JSON exists only inside our fixture folder in the actual picker.
         if !fixtureJSON.waitForExistence(timeout: 3) {
