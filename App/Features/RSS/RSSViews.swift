@@ -41,11 +41,7 @@ struct RSSHomeView: View {
                 else if section == 2, !library.records.isEmpty { Button("清空记录", systemImage: "trash", role: .destructive) { confirmsClear = true } }
             }
         })
-        let importing = AnyView(actions.fileImporter(isPresented: $showsFiles, allowedContentTypes: [.json, .text], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { Task { await library.importFiles(urls) } }
-            if case .failure(let error) = result { library.errorMessage = error.localizedDescription }
-        })
-        let sheets = AnyView(importing
+        let sheets = AnyView(actions
             .sheet(isPresented: $showsTextImport) { RSSImportSheet() }
             .sheet(item: $editingStar) { value in
                 RSSStarEditSheet(star: value, save: { updated in
@@ -57,10 +53,25 @@ struct RSSHomeView: View {
         })
         let status = AnyView(exporting
             .overlay { if library.isWorking { ProgressView().controlSize(.large) } }
-            .alert("RSS操作失败", isPresented: Binding(get: { library.errorMessage != nil }, set: { if !$0 { library.errorMessage = nil } })) {
-            Button("好") { library.errorMessage = nil }
-        } message: { Text(library.errorMessage ?? "") })
-        return status.confirmationDialog(section == 1 ? "确定清空全部RSS收藏？" : "确定清空全部RSS阅读记录？", isPresented: $confirmsClear, titleVisibility: Visibility.visible) {
+            .alert(Text(library.errorMessage == nil ? "RSS导入完成" : "RSS操作失败"), isPresented: Binding(
+                get: { library.errorMessage != nil || library.successMessage != nil },
+                set: { if !$0 { library.errorMessage = nil; library.successMessage = nil } }
+            )) {
+                Button("好") { library.errorMessage = nil; library.successMessage = nil }
+            } message: { Text(library.errorMessage ?? library.successMessage ?? "") })
+        return status
+            .fileImporter(isPresented: $showsFiles, allowedContentTypes: [.json, .text], allowsMultipleSelection: true) { result in
+                switch result {
+                case .success(let urls):
+                    guard !urls.isEmpty else { return }
+                    // Start security-scoped access while the picker callback is still active.
+                    let files = urls.map { RSSImportFile(url: $0) }
+                    Task { await library.importFiles(files) }
+                case .failure(let error):
+                    library.errorMessage = "选择 RSS 文件失败：\(error.localizedDescription)"
+                }
+            }
+            .confirmationDialog(section == 1 ? "确定清空全部RSS收藏？" : "确定清空全部RSS阅读记录？", isPresented: $confirmsClear, titleVisibility: Visibility.visible) {
             Button("清空", role: .destructive) { Task { if section == 1 { await library.clearStars() } else { await library.clearRecords() } } }
             Button("取消", role: .cancel) {}
         }
