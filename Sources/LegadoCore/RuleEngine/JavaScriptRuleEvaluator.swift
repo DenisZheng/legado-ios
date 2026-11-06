@@ -502,8 +502,6 @@ public struct JavaScriptRuleEvaluator: Sendable {
             let html = Self.stringify(value)
             activeContent = .string(html)
             activeContext.content = activeContent
-            context.setObject(html, forKeyedSubscript: "src" as NSString)
-            context.setObject(html, forKeyedSubscript: "result" as NSString)
             return html
         }
         let md5Block: @convention(block) (String) -> String = { value in
@@ -809,7 +807,11 @@ public struct JavaScriptRuleEvaluator: Sendable {
               java.getElement = java.getElements;
               java.setContent = function (content) {
                 var input = htmlValue(content);
-                return java.__setContent(String(input == null ? '' : input));
+                var html = String(input == null ? '' : input);
+                java.__setContent(html);
+                src = html;
+                result = html;
+                return html;
               };
               java.head = function (url, headers, timeout) {
                 return responseOf(java.__directRequest('HEAD', String(url), null, headers || {}, timeout));
