@@ -34,16 +34,8 @@ struct RSSWebReaderView: UIViewRepresentable {
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.defaultWebpagePreferences.allowsContentJavaScript = source.enableJs
-        let controller = configuration.userContentController
-        controller.add(context.coordinator, name: "legado")
-        controller.addUserScript(.init(source: context.coordinator.bridgeScript, injectionTime: .atDocumentStart, forMainFrameOnly: false))
-        if let preload = source.preloadJs?.trimmedNonEmpty {
-            controller.addUserScript(.init(source: preload, injectionTime: .atDocumentStart, forMainFrameOnly: false))
-        }
-        if let inject = source.injectJs?.trimmedNonEmpty {
-            controller.addUserScript(.init(source: inject, injectionTime: .atDocumentEnd, forMainFrameOnly: false))
-        }
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        context.coordinator.configureScripts(for: mode, in: webView)
         webView.isOpaque = false
         webView.backgroundColor = UIColor(ReadingTheme.canvas)
         webView.scrollView.backgroundColor = UIColor(ReadingTheme.canvas)
@@ -57,6 +49,7 @@ struct RSSWebReaderView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.update(source: source)
+        context.coordinator.configureScripts(for: mode, in: webView)
         context.coordinator.onTextChange = onTextChange
         context.coordinator.onAction = onAction
         context.coordinator.loadIfChanged(mode: mode, in: webView)
@@ -75,6 +68,7 @@ struct RSSWebReaderView: UIViewRepresentable {
         var onAction: (RSSWebAction) -> Void
         private var signature = ""
         private var rulesInstalled = false
+        private var bridgeEnabled = false
         private let htmlProcessor = RSSHTMLProcessor()
         private var analyzeContent: JSONValue = .string("")
         private var analyzeBaseURL = ""
@@ -83,6 +77,35 @@ struct RSSWebReaderView: UIViewRepresentable {
 
         init(source: RssSource, onTextChange: @escaping (String) -> Void, onAction: @escaping (RSSWebAction) -> Void) { self.source = source; self.onTextChange = onTextChange; self.onAction = onAction }
         func update(source: RssSource) { self.source = source }
+
+        func configureScripts(for mode: RSSReadingMode, in webView: WKWebView) {
+            let controller = webView.configuration.userContentController
+            controller.removeAllUserScripts()
+            controller.removeScriptMessageHandler(forName: "legado")
+            bridgeEnabled = mode.allowsNativeBridge
+            guard bridgeEnabled else { return }
+
+            controller.add(self, name: "legado")
+            controller.addUserScript(.init(
+                source: bridgeScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+            if let preload = source.preloadJs?.trimmedNonEmpty {
+                controller.addUserScript(.init(
+                    source: preload,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true
+                ))
+            }
+            if let inject = source.injectJs?.trimmedNonEmpty {
+                controller.addUserScript(.init(
+                    source: inject,
+                    injectionTime: .atDocumentEnd,
+                    forMainFrameOnly: true
+                ))
+            }
+        }
 
         var bridgeScript: String {
             let sourceJSON = (try? JSONEncoder().encode(source)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
@@ -249,7 +272,9 @@ struct RSSWebReaderView: UIViewRepresentable {
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return }
+            guard bridgeEnabled, message.frameInfo.isMainFrame,
+                  let body = message.body as? [String: Any],
+                  let action = body["action"] as? String else { return }
             switch action {
             case "put":
                 if let key = body["key"] as? String { BookSourceRuntimeStore.shared.put(sourceID: source.sourceUrl, key: key, value: String(describing: body["value"] ?? "")) }
@@ -284,6 +309,10 @@ struct RSSWebReaderView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
+            guard bridgeEnabled, frame.isMainFrame else {
+                completionHandler(defaultText)
+                return
+            }
             if prompt == "__legado_get__" {
                 completionHandler(BookSourceRuntimeStore.shared.get(sourceID: source.sourceUrl, key: defaultText ?? ""))
             } else if prompt == "__legado_rule__" {
