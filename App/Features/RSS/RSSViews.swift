@@ -234,6 +234,7 @@ private struct RSSStandaloneReaderView: View {
     let mode: RSSReadingMode
     @State private var route: RSSNativeRoute?
     @State private var webMessage: String?
+    @State private var pendingExternalURL: URL?
     var body: some View {
         RSSWebReaderView(mode: mode, source: source, onAction: handle)
             .navigationTitle(source.sourceName).navigationBarTitleDisplayMode(.inline)
@@ -266,7 +267,28 @@ private struct RSSStandaloneReaderView: View {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 if !Task.isCancelled { webMessage = nil }
             }
+            .confirmationDialog("打开外部链接？", isPresented: Binding(
+                get: { pendingExternalURL != nil },
+                set: { if !$0 { pendingExternalURL = nil } }
+            ), titleVisibility: .visible) {
+                Button("打开") {
+                    if let url = pendingExternalURL { UIApplication.shared.open(url) }
+                    pendingExternalURL = nil
+                }
+                Button("取消", role: .cancel) { pendingExternalURL = nil }
+            } message: {
+                Text(pendingExternalURL?.absoluteString ?? "")
+            }
     }
+    private static func validatedExternalURL(_ rawValue: String) -> URL? {
+        guard rawValue.utf8.count < 65_536,
+              let url = URL(string: rawValue),
+              ["http", "https", "legado", "yuedu"].contains(url.scheme?.lowercased() ?? "") else {
+            return nil
+        }
+        return url
+    }
+
     private func handle(_ action: RSSWebAction) {
         switch action {
         case .showPhoto(let value): route = .photo(value)
@@ -275,7 +297,7 @@ private struct RSSStandaloneReaderView: View {
         case .download(let url, let fileName): route = .download(url: url, fileName: fileName)
         case .openBrowser(let value): route = .start(.web(url: value))
         case .openExternal(let value):
-            if let url = URL(string: value) { UIApplication.shared.open(url) }
+            pendingExternalURL = Self.validatedExternalURL(value)
         case .message(let value): webMessage = value
         case .open(let name, let url, let title, _):
             switch name.lowercased() {
@@ -368,6 +390,7 @@ private struct RSSArticleDetailView: View {
     @StateObject private var speech = RSSSpeechController()
     @State private var nativeRoute: RSSNativeRoute?
     @State private var webMessage: String?
+    @State private var pendingExternalURL: URL?
 
     var body: some View {
         Group {
@@ -441,6 +464,27 @@ private struct RSSArticleDetailView: View {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             if !Task.isCancelled { webMessage = nil }
         }
+        .confirmationDialog("打开外部链接？", isPresented: Binding(
+            get: { pendingExternalURL != nil },
+            set: { if !$0 { pendingExternalURL = nil } }
+        ), titleVisibility: .visible) {
+            Button("打开") {
+                if let url = pendingExternalURL { UIApplication.shared.open(url) }
+                pendingExternalURL = nil
+            }
+            Button("取消", role: .cancel) { pendingExternalURL = nil }
+        } message: {
+            Text(pendingExternalURL?.absoluteString ?? "")
+        }
+    }
+
+    private static func validatedExternalURL(_ rawValue: String) -> URL? {
+        guard rawValue.utf8.count < 65_536,
+              let url = URL(string: rawValue),
+              ["http", "https", "legado", "yuedu"].contains(url.scheme?.lowercased() ?? "") else {
+            return nil
+        }
+        return url
     }
 
     private func handleWebAction(_ action: RSSWebAction) {
@@ -450,7 +494,7 @@ private struct RSSArticleDetailView: View {
         case .addBook(let value): nativeRoute = .addBook(value)
         case .openBrowser(let value): nativeRoute = .start(.web(url: value))
         case .openExternal(let value):
-            if let url = URL(string: value) { UIApplication.shared.open(url) }
+            pendingExternalURL = Self.validatedExternalURL(value)
         case .message(let value): webMessage = value
         case .open(let name, let url, let title, _):
             switch name.lowercased() {
