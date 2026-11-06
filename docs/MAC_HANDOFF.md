@@ -79,6 +79,10 @@ UI 测试会通过独立应用的系统导出窗口保存一份带唯一目录�
 
 ## 当前交付与下一批工作
 
+换机停止点：最终代码为 `d55585c`。用户要求停止 Windows 侧验证，最后的 UI 验证交给 Mac；[CI 42235912502](https://github.com/DenisZheng/legado-ios/actions/runs/42235912502) 已在排队阶段取消。**Files 导入修复和 `WebReaderBridgeTests` 尚未完成最终验收。** 请在 Mac 优先执行上面的 4 项导入/RSS UI 与 3 项网页桥测试，再继续开发。
+
+已知证据：`f7f5d3a` 的 397 项核心测试及仅编译通过；旧 Files 方案仍有 2 项导入 UI 失败。`773bd20` 的运行完成了新的系统导出和 7 个文件内容校验，随后被取消，尚未走完正式导入断言。`022d0aa` 再补协调读取，`d55585c` 统一 LF；不能把前一轮部分执行当成最终修复通过。本次没有生成新 IPA。
+
 - P0-01：缓存期限丢失已修复并有回归；负期限、文件缓存及非文本契约仍待核对。
 - P0-16：规则与 RSS 页面均已补齐 `source.getVariable/setVariable/putVariable`，与已有 `get/put` 键值存储隔离，共用持久缓存。新增空值、别名、多源、跨求值、持久化和动态分类测试，以及 WKWebView 双向读写测试。
 - CI：`build` 仅编译；`test` 包含核心、4 项 RSS/书源 UI 和网页桥回归；`ipa` 才执行完整回归和 Release Archive。源码推送默认 `test`，手动默认 `build`。可在 Mac 本地完成 UI 调试；当前保留 CI 回归。

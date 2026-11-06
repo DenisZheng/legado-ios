@@ -96,7 +96,7 @@ RSS 和书源现在共用 `SourceFileImportPicker`/`SourceImportFile`：选择�
 
 历史方案 `4edf2b9` 使用独立应用生成 7 个样本，再从宿主机复制到 Files 本地容器；运行 `42224416883` 曾通过全部回归，但同一方案在 `f7f5d3a` 的 [42229891543](https://github.com/DenisZheng/legado-ios/actions/runs/42229891543) 再次失败。书源两个文档 ID 和 RSS 文档 ID 返回 `NSFileProviderErrorDomain -1005`，DocumentManager 收到空数组；397 项核心、入口与搜索阅读 UI 通过，两个文件导入 UI 失败，网页桥被前置失败阻断。这不是 RSS 解码错误，也不能根据一次历史绿色宣称 Files 问题已根治。
 
-`773bd20` 改为系统导出后再导入，移除宿主机复制脚本；网页桥步骤在 UI 失败后仍运行，原步骤失败仍令总 CI 失败，IPA 不会因此放行。对应 [运行 42233746082](https://github.com/DenisZheng/legado-ios/actions/runs/42233746082) 待完成验证。
+`773bd20` 改为系统导出后再导入，移除宿主机复制脚本；网页桥步骤在 UI 失败后仍运行，原步骤失败仍令总 CI 失败，IPA 不会因此放行。初次运行 `42233746082` 已通过系统导出和 7 文件校验，随后为验证最终代码而取消，不能计为 UI 通过。`022d0aa` 补齐导出后的协调读取，`d55585c` 统一夹具 LF 换行；最终 [运行 42235912502](https://github.com/DenisZheng/legado-ios/actions/runs/42235912502) 按用户要求在排队阶段取消。最终导入 UI 与网页桥验证交给 Mac，不能标为修复验收通过；接续入口见 [MAC_HANDOFF.md](MAC_HANDOFF.md)。
 
 历史运行 `42224416883` 通过 393 tests / 50 suites、4 项 UI 回归、Archive 和 IPA 上传。工具链为 Xcode 26.6（17F113），与固定的模拟器 runtime 分开记录。产物下载后 SHA-256 和 ZIP 完整性校验通过，版本 0.1.14（20）；不包含本轮新增源变量接口。未签名 IPA 需要签名后安装，不能把构建成功等同真实源或真机验证完成。
 

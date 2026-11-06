@@ -157,7 +157,7 @@ M2 / P0-16：`f7f5d3a` 为规则侧和 RSS 页面补齐 `source.getVariable/setV
 
 CI 模式改动为 `a18f87d`，本地 actionlint 通过；`f7f5d3a` 的 [build 运行](https://github.com/DenisZheng/legado-ios/actions/runs/42229925320) 已通过，job 耗时 6 分 2 秒，未执行测试或生成产物。[test 运行](https://github.com/DenisZheng/legado-ios/actions/runs/42229891543) 通过 397 tests / 50 suites；4 项 UI 中入口和搜索阅读通过，书源/RSS 文件导入失败，网页桥因此未执行。本轮不执行 IPA 打包。
 
-该失败复现 Files 文档 ID 无法解析和回传空数组，说明 `4edf2b9` 的宿主机复制方案仍不稳定。`773bd20` 移除直接写 Files 容器的脚本，改由独立夹具应用经系统导出保存后再测试导入；同时网页桥不再因文件 UI 失败而跳过，总体失败仍保留。对应 [42233746082](https://github.com/DenisZheng/legado-ios/actions/runs/42233746082) 待验证。换机步骤见 [Mac 接续说明](MAC_HANDOFF.md)。
+该失败复现 Files 文档 ID 无法解析和回传空数组，说明 `4edf2b9` 的宿主机复制方案仍不稳定。`773bd20` 移除直接写 Files 容器的脚本，改由独立夹具应用经系统导出保存后再测试导入；同时网页桥不再因文件 UI 失败而跳过，总体失败仍保留。初次运行 `42233746082` 已完成导出及 7 文件校验，随后取消以验证最终代码，不计为 UI 通过。`022d0aa` 补协调读取、`d55585c` 统一 LF；最终 [42235912502](https://github.com/DenisZheng/legado-ios/actions/runs/42235912502) 按用户要求在排队阶段取消，正式导入 UI 与网页桥最终验收交给 Mac。换机步骤见 [Mac 接续说明](MAC_HANDOFF.md)。
 
 ## 平台资料
 
