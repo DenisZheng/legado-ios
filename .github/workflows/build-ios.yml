@@ -56,9 +56,28 @@ jobs:
           done
           curl -fsS http://127.0.0.1:18763/source.json > /dev/null
 
-          DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
+          # 使用同一可用机型/runtime 创建独立设备，隔离镜像预置模拟器的 Files 索引。
+          DEVICE_ID="$(python3 - <<'PY'
+          import json
+          import subprocess
+
+          devices = json.loads(subprocess.check_output(
+              ["xcrun", "simctl", "list", "devices", "available", "--json"]
+          ))["devices"]
+          runtime, device_type = next(
+              (runtime, device["deviceTypeIdentifier"])
+              for runtime, entries in devices.items()
+              for device in entries
+              if device.get("isAvailable") and device["name"].startswith("iPhone")
+          )
+          subprocess.run(
+              ["xcrun", "simctl", "create", "Legado RSS CI", device_type, runtime],
+              check=True
+          )
+          PY
+          )"
           test -n "$DEVICE_ID"
-          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl boot "$DEVICE_ID"
           xcrun simctl bootstatus "$DEVICE_ID" -b
           sh scripts/prepare-source-import-fixture.sh "$DEVICE_ID"
 

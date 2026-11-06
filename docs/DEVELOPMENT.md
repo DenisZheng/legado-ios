@@ -64,6 +64,8 @@ RSS 界面回归还验证正文的手动刷新确实重新请求网络。核心�
 
 Files 冷启动时，文件选择器 sheet 和导航控件可能分批出现在可访问性树中。RSS 文件导入测试须先等待文件、当前目录、位置入口或可点击的 Browse 出现，再按当前状态导航；不能用一次 `browse.exists` 为 false 就跳过 Browse。运行 `42212284372` 的失败快照仍在 Recents，Browse 已出现，但此前没有点击 Browse，失败发生在寻找 On My iPhone 时。此问题与点击 Open 后文件回传失败是不同阶段，诊断时应先核对断言位置和完整操作日志。
 
+运行 `42214902416` 已通过目录导航，但点击 Open 后系统日志出现 `NSFileProviderErrorDomain -1005`，无法将 `localstorage/did=4` 解析成 URL，DocumentManager 因而返回空文件列表。CI 使用相同可用机型/runtime 新建 `Legado RSS CI` 设备，再安装夹具、执行测试，以隔离预置模拟器的文件索引状态；新建设备是否解决该失败须以对应运行验证。不要将这一系统回传失败解释成 RSS JSON 解析失败，也不要以无限重试或跳过导入断言处理。
+
 ## 兼容性验证
 
 RSS 的 Android 基准、P0～P3 任务依赖与验收标准见 [RSS 兼容实施计划](RSS_COMPATIBILITY_PLAN.md)，能力场景及真实源逐阶段记录规范见 [RSS 兼容验证矩阵](RSS_COMPATIBILITY_MATRIX.md)。实现状态和实测结果分别维护。

@@ -135,6 +135,8 @@ M1 使用可注入时钟和独立 UserDefaults 测试存储，覆盖到期前读
 
 M1 验证补充：`1555ea3` 的 [运行 42212284372](https://github.com/DenisZheng/legado-ios/actions/runs/42212284372) 中 391 项核心测试通过；RSS UI 有 1 项失败，另 2 项通过。失败发生在 Files 冷启动后未点击 Browse 就查找 On My iPhone，尚未选中文件。随后修正该测试的就绪状态等待与目录导航，保留最终导入断言；完整 CI 仍须验证后续修复提交。
 
+`3db20c6` 的 [运行 42214902416](https://github.com/DenisZheng/legado-ios/actions/runs/42214902416) 已通过导航，但在 Open 后复现系统文件 ID 无法解析（`NSFileProviderErrorDomain -1005`），返回空文件列表。后续 CI 改为相同机型/runtime 的全新专用模拟器，隔离预置设备的文件索引状态，继续运行原有导入断言。该环境问题与缓存回归分别记录，不能把一次绿色运行当成根因证明。
+
 ## 平台资料
 
 2026-11-06 经 Context7 查询 Apple Developer Documentation，选择 `/websites/developer_apple_de`（Apple 官方文档镜像索引）。以下仅支持设计约束，不代表已完成设备实验：
