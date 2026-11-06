@@ -498,11 +498,20 @@ public struct JavaScriptRuleEvaluator: Sendable {
             let html = content.map(Self.stringify) ?? activeContent.stringValue
             return (try? self.evaluateElementRule(rule, html: html, executionContext: activeContext)) ?? []
         }
-        let setContentBlock: @convention(block) (Any?) -> String = { value in
+        let setContentBlock: @convention(block) (Any?, Any?) -> String = { value, baseValue in
             let html = Self.stringify(value)
             activeContent = .string(html)
             activeContext.content = activeContent
+            if let baseValue, !(baseValue is NSNull) {
+                let base = Self.stringify(baseValue).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !base.isEmpty { activeContext.baseURL = base }
+            }
             return html
+        }
+        let setBaseURLBlock: @convention(block) (Any?) -> String = { value in
+            let base = Self.stringify(value).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !base.isEmpty { activeContext.baseURL = base }
+            return activeContext.baseURL
         }
         let md5Block: @convention(block) (String) -> String = { value in
             Insecure.MD5.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -730,6 +739,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
         java?.setObject(getStringListBlock, forKeyedSubscript: "__getStringList" as NSString)
         java?.setObject(getElementsBlock, forKeyedSubscript: "__getElements" as NSString)
         java?.setObject(setContentBlock, forKeyedSubscript: "__setContent" as NSString)
+        java?.setObject(setBaseURLBlock, forKeyedSubscript: "__setBaseURL" as NSString)
         java?.setObject(md5Block, forKeyedSubscript: "md5Encode" as NSString)
         java?.setObject(base64Encode, forKeyedSubscript: "base64Encode" as NSString)
         java?.setObject(base64Decode, forKeyedSubscript: "base64Decode" as NSString)
@@ -797,7 +807,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
                 return value;
               }
               java.getString = function (rule, content, isUrl) {
-                var input = arguments.length < 2 || content == null ? src : htmlValue(content);
+                var input = arguments.length < 2 || content == null ? null : htmlValue(content);
                 return java.__getString(
                   String(rule == null ? '' : rule),
                   input,
@@ -805,7 +815,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
                 );
               };
               java.getStringList = function (rule, content, isUrl) {
-                var input = arguments.length < 2 || content == null ? src : htmlValue(content);
+                var input = arguments.length < 2 || content == null ? null : htmlValue(content);
                 return java.__getStringList(
                   String(rule == null ? '' : rule),
                   input,
@@ -860,18 +870,28 @@ public struct JavaScriptRuleEvaluator: Sendable {
                 return items;
               }
               java.getElements = function (rule, content) {
-                var input = arguments.length < 2 || content == null ? src : htmlValue(content);
+                var input = arguments.length < 2 || content == null ? null : htmlValue(content);
                 return makeElements(java.__getElements(String(rule), input));
               };
               java.getElement = java.getElements;
-              java.setContent = function (content) {
-                var input = htmlValue(content);
-                var html = String(input == null ? '' : input);
-                java.__setContent(html);
-                src = html;
-                result = html;
-                return html;
+              var analyzer = {
+                setContent: function (content, baseUrl) {
+                  if (content == null) throw new Error('内容不可空（Content cannot be null）');
+                  var html = htmlValue(content);
+                  java.__setContent(html, baseUrl == null ? null : String(baseUrl));
+                  return analyzer;
+                },
+                setBaseUrl: function (baseUrl) {
+                  java.__setBaseURL(baseUrl == null ? null : String(baseUrl));
+                  return analyzer;
+                },
+                getString: function (rule, content, isUrl) { return java.getString(rule, content, isUrl); },
+                getStringList: function (rule, content, isUrl) { return java.getStringList(rule, content, isUrl); },
+                getElement: function (rule, content) { return java.getElement(rule, content); },
+                getElements: function (rule, content) { return java.getElements(rule, content); }
               };
+              java.setContent = analyzer.setContent;
+              java.setBaseUrl = analyzer.setBaseUrl;
               java.head = function (url, headers, timeout) {
                 return responseOf(java.__directRequest('HEAD', String(url), null, headers || {}, timeout));
               };
