@@ -67,6 +67,57 @@ final class RuleEditorUITests: XCTestCase {
         XCTAssertTrue(result.waitForExistence(timeout: 5))
     }
 
+    func testRSSFilePickerOpensAndImportsSelectedJSON() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiDemo", "-defaultHomePage", "rss", "-themeMode", "1"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["RSS"].waitForExistence(timeout: 20))
+
+        app.buttons["RSS操作"].tap()
+        app.buttons["导入文件"].tap()
+
+        let rssFile = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "RSS-Source")
+        ).firstMatch
+        let fixtures = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "书源导入测试")
+        ).firstMatch
+        if !rssFile.waitForExistence(timeout: 3) {
+            let browse = app.buttons.matching(
+                NSPredicate(format: "label IN %@", ["Browse", "浏览", "Locations", "位置"])
+            ).firstMatch
+            if browse.exists { browse.tap() }
+            if !fixtures.waitForExistence(timeout: 2) {
+                let local = app.descendants(matching: .any).matching(NSPredicate(
+                    format: "label CONTAINS %@ OR label CONTAINS %@ OR label == %@",
+                    "我的 iPhone", "我的iPhone", "On My iPhone"
+                )).firstMatch
+                XCTAssertTrue(local.waitForExistence(timeout: 5), app.debugDescription)
+                local.tap()
+            }
+            XCTAssertTrue(fixtures.waitForExistence(timeout: 10),
+                          "Run scripts/prepare-source-import-fixture.sh for the simulator")
+            fixtures.tap()
+        }
+
+        XCTAssertTrue(rssFile.waitForExistence(timeout: 10), app.debugDescription)
+        rssFile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let open = app.buttons.matching(
+            NSPredicate(format: "label IN %@", ["Open", "打开", "Import", "导入"])
+        ).firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(open.isEnabled, app.debugDescription)
+        open.tap()
+
+        let imported = app.staticTexts["本地 RSS 文件导入测试"]
+        XCTAssertTrue(imported.waitForExistence(timeout: 15), app.debugDescription)
+        let success = app.alerts["RSS导入完成"]
+        XCTAssertTrue(success.waitForExistence(timeout: 5), app.debugDescription)
+        success.buttons["好"].tap()
+        XCTAssertTrue(imported.exists)
+    }
+
     func testRSSIsAvailableAsNormalTabAndCanBeDefaultHomePage() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-uiDemo", "-defaultHomePage", "rss", "-themeMode", "1"]
