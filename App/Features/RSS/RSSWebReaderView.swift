@@ -7,6 +7,7 @@ enum RSSWebAction {
     case searchBook(key: String, scope: String?)
     case addBook(String)
     case open(name: String, url: String?, title: String?, origin: String?)
+    case openBrowser(String)
     case openExternal(String)
     case message(String)
     case download(url: String, fileName: String)
@@ -111,8 +112,8 @@ struct RSSWebReaderView: UIViewRepresentable {
               java.addBook = url => native('addBook', {url:String(url)});
               java.searchBook = (key, scope) => native('searchBook', {key:String(key), scope:scope == null ? null : String(scope)});
               java.open = (name, url, title, origin) => native('open', {name:String(name), url:url == null ? null : String(url), title:title == null ? null : String(title), origin:origin == null ? null : String(origin)});
-              java.startBrowser = url => native('openExternal', {url:String(url)});
-              java.openUrl = url => native('openExternal', {url:String(url)});
+              java.startBrowser = (url, title, html) => native('openBrowser', {url:String(url), title:title == null ? '' : String(title)});
+              java.openUrl = (url, mimeType) => native('openExternal', {url:String(url), mimeType:mimeType == null ? null : String(mimeType)});
               java.longToast = message => native('message', {message:String(message == null ? '' : message)});
               java.toast = java.longToast;
               java.setContent = analyzer.setContent; java.setBaseUrl = analyzer.setBaseUrl; java.setRedirectUrl = analyzer.setRedirectUrl;
@@ -195,6 +196,12 @@ struct RSSWebReaderView: UIViewRepresentable {
             case "open":
                 let name = body["name"] as? String ?? ""
                 DispatchQueue.main.async { self.onAction(.open(name: name, url: body["url"] as? String, title: body["title"] as? String, origin: body["origin"] as? String)) }
+            case "openBrowser":
+                if let raw = body["url"] as? String,
+                   let url = URL(string: raw),
+                   ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    DispatchQueue.main.async { self.onAction(.openBrowser(raw)) }
+                }
             case "openExternal":
                 if let raw = body["url"] as? String,
                    let url = URL(string: raw),
