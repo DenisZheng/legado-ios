@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-26
@@ -37,6 +41,31 @@ jobs:
 
       - name: Run core tests
         run: swift test --disable-sandbox
+
+      - name: Run RSS UI regression tests
+        run: |
+          python3 scripts/fixtures/rss-flow-server.py > "$RUNNER_TEMP/rss-fixture.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:18763/source.json > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18763/source.json > /dev/null
+
+          DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
+          test -n "$DEVICE_ID"
+
+          xcodebuild \
+            -project Legado.xcodeproj \
+            -scheme LegadoRSSFlowUITests \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            test
 
       - name: Archive unsigned iOS app
         run: |
