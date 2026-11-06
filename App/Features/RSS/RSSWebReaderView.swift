@@ -142,35 +142,33 @@ struct RSSWebReaderView: UIViewRepresentable {
               window.java = window.java || {};
               java.get = get; java.put = put;
               java.getSource = () => window.source; java.getTag = () => \(Self.jsString(source.sourceName));
-              java.ajax = (url, timeout) => evaluateJS('java.ajax(' + JSON.stringify(String(url)) + (timeout == null ? '' : ',' + Number(timeout)) + ')');
-              java.ajaxAll = (urls, timeout) => evaluateJS('java.ajaxAll(' + JSON.stringify(urls) + (timeout == null ? '' : ',' + Number(timeout)) + ')');
-              java.connect = (url, headers, timeout) => evaluateJS(
-                '(function(){var r=java.connect(' + JSON.stringify(String(url)) + ',' +
-                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) +
-                ');return {url:r.url,body:r.body,code:r.code,message:r.message,headers:r.headers,successful:r.successful,callTime:r.callTime};})()'
+              java.ajax = (url, timeout) => evaluateJS(
+                'java.ajax(' + JSON.stringify(String(url)) + (timeout == null ? '' : ',' + Number(timeout)) + ')'
               );
-              java.getResponse = (method, url, body, headers, timeout) => evaluateJS(
-                '(function(){var r=java.' + method + '(' + JSON.stringify(String(url)) + ',' +
-                (body == null ? 'null' : JSON.stringify(body)) + ',' + JSON.stringify(headers || {}) +
-                (timeout == null ? '' : ',' + Number(timeout)) +
-                ');return {url:r.url().toString(),body:r.body(),code:r.statusCode(),headers:r.headers()};})()'
+              java.connect = (url, headers, timeout) => evaluateJS(
+                'JSON.stringify(java.connect(' + JSON.stringify(String(url)) + ',' +
+                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) + '))'
               );
               java.get = function (url, headers, timeout) {
                 if (arguments.length === 1) return get(url);
-                return evaluateJS('(function(){var r=java.get(' + JSON.stringify(String(url)) + ',' +
-                  JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) +
-                  ');return {url:r.url().toString(),body:r.body(),code:r.statusCode(),headers:r.headers()};})()');
+                return evaluateJS(
+                  'java.get(' + JSON.stringify(String(url)) + ',' + JSON.stringify(headers || {}) +
+                  (timeout == null ? '' : ',' + Number(timeout)) + ').body()'
+                );
               };
               java.head = (url, headers, timeout) => evaluateJS(
-                '(function(){var r=java.head(' + JSON.stringify(String(url)) + ',' +
-                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) +
-                ');return {url:r.url().toString(),body:r.body(),code:r.statusCode(),headers:r.headers()};})()'
+                'JSON.stringify(java.head(' + JSON.stringify(String(url)) + ',' +
+                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) + ').headers())'
               );
               java.post = (url, body, headers, timeout) => evaluateJS(
-                '(function(){var r=java.post(' + JSON.stringify(String(url)) + ',' + JSON.stringify(body == null ? '' : body) + ',' +
-                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) +
-                ');return {url:r.url().toString(),body:r.body(),code:r.statusCode(),headers:r.headers()};})()'
+                'java.post(' + JSON.stringify(String(url)) + ',' + JSON.stringify(body == null ? '' : body) + ',' +
+                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) + ').body()'
               );
+              java.getCookie = (tag, key) => nativeCall('__legado_cookie__', {
+                op: key == null ? 'get' : 'getKey',
+                url: String(tag),
+                key: key == null ? null : String(key)
+              });
               window.cache = {
                 put(key, value, saveTime) { nativeCall('__legado_cache__', {op:'put', key:String(key), value, saveTime:Number(saveTime) || 0}); },
                 get(key, onlyDisk) { return nativeCall('__legado_cache__', {op:'get', key:String(key), onlyDisk:!!onlyDisk}); },
@@ -202,7 +200,6 @@ struct RSSWebReaderView: UIViewRepresentable {
               java.addBook = url => native('addBook', {url:String(url)});
               java.searchBook = (key, scope) => native('searchBook', {key:String(key), scope:scope == null ? null : String(scope)});
               java.open = (name, url, title, origin) => native('open', {name:String(name), url:url == null ? null : String(url), title:title == null ? null : String(title), origin:origin == null ? null : String(origin)});
-              java.startBrowser = (url, title, html) => native('openBrowser', {url:String(url), title:title == null ? '' : String(title)});
               java.openUrl = (url, mimeType) => native('openExternal', {url:String(url), mimeType:mimeType == null ? null : String(mimeType)});
               java.longToast = message => native('message', {message:String(message == null ? '' : message)});
               java.toast = java.longToast;
