@@ -1,0 +1,73 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "App/**"
+      - "Sources/**"
+      - "Tests/**"
+      - "Legado.xcodeproj/**"
+      - "Package.swift"
+      - "Package.resolved"
+      - ".github/workflows/build-ios.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Resolve Xcode dependencies
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Legado.xcodeproj \
+            -scheme Legado
+
+      - name: Run core tests
+        run: swift test --disable-sandbox
+
+      - name: Archive unsigned iOS app
+        run: |
+          xcodebuild \
+            -project Legado.xcodeproj \
+            -scheme Legado \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Legado.xcarchive" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+
+      - name: Package unsigned IPA
+        run: |
+          APP_PATH="$RUNNER_TEMP/Legado.xcarchive/Products/Applications/Legado.app"
+          test -d "$APP_PATH"
+
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          ditto "$APP_PATH" "$RUNNER_TEMP/ipa/Payload/Legado.app"
+
+          cd "$RUNNER_TEMP/ipa"
+          /usr/bin/zip -qry -y "$RUNNER_TEMP/Legado-unsigned.ipa" Payload
+          shasum -a 256 "$RUNNER_TEMP/Legado-unsigned.ipa" > "$RUNNER_TEMP/Legado-unsigned.ipa.sha256"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: legado-ios-unsigned-ipa
+          path: |
+            ${{ runner.temp }}/Legado-unsigned.ipa
+            ${{ runner.temp }}/Legado-unsigned.ipa.sha256
+          if-no-files-found: error
+          retention-days: 14
