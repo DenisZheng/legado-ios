@@ -761,7 +761,10 @@ public struct JavaScriptRuleEvaluator: Sendable {
                   outerHtml: function () { return html; },
                   text: function () { return java.getString('@text', html); },
                   ownText: function () { return java.getString('@ownText', html); },
-                  attr: function (name) { return java.getString('@' + String(name), html); },
+                  attr: function (name) {
+                    var tag = (html.match(/^\\s*<([a-zA-Z][\\w:-]*)/) || [])[1];
+                    return tag ? java.getString(tag + '@' + String(name), html) : '';
+                  },
                   select: function (selector) { return makeElements(java.__getElements(String(selector), html)); },
                   getElementsByClass: function (names) {
                     return this.select('.' + String(names).trim().split(/\\s+/).join('.'));
@@ -1493,7 +1496,10 @@ public struct JavaScriptRuleEvaluator: Sendable {
               outerHtml: function () { return html; },
               text: function () { return global.java.getString('@text', html); },
               ownText: function () { return global.java.getString('@ownText', html); },
-              attr: function (name) { return global.java.getString('@' + NativeString(name), html); },
+              attr: function (name) {
+                var tag = (html.match(/^\\s*<([a-zA-Z][\\w:-]*)/) || [])[1];
+                return tag ? global.java.getString(tag + '@' + NativeString(name), html) : '';
+              },
               select: function (selector) { return makeElements(global.java.__getElements(NativeString(selector), html)); },
               getElementsByClass: function (names) {
                 return this.select('.' + NativeString(names).trim().split(/\\s+/).join('.'));
