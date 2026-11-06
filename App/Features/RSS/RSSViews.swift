@@ -42,17 +42,6 @@ struct RSSHomeView: View {
             }
         })
         let sheets = AnyView(actions
-            .sheet(isPresented: $showsFiles) {
-                RSSDocumentPicker(
-                    onPick: { urls in
-                        showsFiles = false
-                        guard !urls.isEmpty else { return }
-                        Task { await library.importFiles(urls) }
-                    },
-                    onCancel: { showsFiles = false }
-                )
-                .ignoresSafeArea()
-            }
             .sheet(isPresented: $showsTextImport) { RSSImportSheet() }
             .sheet(item: $editingStar) { value in
                 RSSStarEditSheet(star: value, save: { updated in
@@ -71,6 +60,17 @@ struct RSSHomeView: View {
                 Button("好") { library.errorMessage = nil; library.successMessage = nil }
             } message: { Text(library.errorMessage ?? library.successMessage ?? "") })
         return status
+            .sheet(isPresented: $showsFiles) {
+                RSSDocumentPicker(
+                    onPick: { urls in
+                        showsFiles = false
+                        guard !urls.isEmpty else { return }
+                        Task { await library.importFiles(urls) }
+                    },
+                    onCancel: { showsFiles = false }
+                )
+                .ignoresSafeArea()
+            }
             .confirmationDialog(section == 1 ? "确定清空全部RSS收藏？" : "确定清空全部RSS阅读记录？", isPresented: $confirmsClear, titleVisibility: Visibility.visible) {
             Button("清空", role: .destructive) { Task { if section == 1 { await library.clearStars() } else { await library.clearRecords() } } }
             Button("取消", role: .cancel) {}
