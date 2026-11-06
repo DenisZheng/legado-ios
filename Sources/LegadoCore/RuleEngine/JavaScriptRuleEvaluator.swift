@@ -477,7 +477,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
         var activeContent = executionContext.content ?? result
         var activeContext = executionContext
         let getStringBlock: @convention(block) (String, Any?, Bool) -> String = { rule, content, isURL in
-            let input = content.map(JSONValue.bridge) ?? activeContent
+            let input = (content == nil || content is NSNull) ? activeContent : JSONValue.bridge(content)
             return (try? self.evaluateStringRule(
                 rule,
                 content: input,
@@ -486,7 +486,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
             )) ?? ""
         }
         let getStringListBlock: @convention(block) (String, Any?, Bool) -> [String] = { rule, content, isURL in
-            let input = content.map(JSONValue.bridge) ?? activeContent
+            let input = (content == nil || content is NSNull) ? activeContent : JSONValue.bridge(content)
             return (try? self.evaluateStringRuleList(
                 rule,
                 content: input,
@@ -495,7 +495,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
             )) ?? []
         }
         let getElementsBlock: @convention(block) (String, Any?) -> [String] = { rule, content in
-            let html = content.map(Self.stringify) ?? activeContent.stringValue
+            let html = (content == nil || content is NSNull) ? activeContent.stringValue : Self.stringify(content)
             return (try? self.evaluateElementRule(rule, html: html, executionContext: activeContext)) ?? []
         }
         let setContentBlock: @convention(block) (Any?, Any?) -> String = { value, baseValue in
