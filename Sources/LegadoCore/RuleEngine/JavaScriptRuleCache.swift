@@ -36,8 +36,8 @@ final class JavaScriptRuleCache: @unchecked Sendable {
         }
     }
 
-    func get(_ key: String) -> String? {
-        if let value = getFromMemory(key) { return value }
+    func get(_ key: String, onlyDisk: Bool = false) -> String? {
+        if !onlyDisk, let value = getFromMemory(key) { return value }
         let storageKey = prefix + key
         if let expiry = defaults.object(forKey: storageKey + ".expires") as? Double,
            expiry <= Date().timeIntervalSince1970 {
@@ -46,7 +46,7 @@ final class JavaScriptRuleCache: @unchecked Sendable {
             return nil
         }
         guard let value = defaults.string(forKey: storageKey) else { return nil }
-        putMemory(key, value: value)
+        if !onlyDisk { putMemory(key, value: value) }
         return value
     }
 
