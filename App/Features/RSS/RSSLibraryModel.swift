@@ -4,6 +4,36 @@ import SwiftUI
 import LegadoCore
 #endif
 
+/// Retains the document-provider security scope and coordinates reads from Files/iCloud providers.
+final class RSSImportFile: @unchecked Sendable {
+    let url: URL
+    private let hasSecurityScope: Bool
+
+    init(url: URL) {
+        self.url = url
+        hasSecurityScope = url.startAccessingSecurityScopedResource()
+    }
+
+    deinit {
+        if hasSecurityScope { url.stopAccessingSecurityScopedResource() }
+    }
+
+    func read() throws -> Data {
+        var coordinationError: NSError?
+        var result: Result<Data, Error>?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readableURL in
+            result = Result {
+                let values = try readableURL.resourceValues(forKeys: [.isDirectoryKey])
+                guard values.isDirectory != true else { throw RSSSourceImportError.notAFile }
+                return try Data(contentsOf: readableURL, options: [.mappedIfSafe])
+            }
+        }
+        if let coordinationError { throw coordinationError }
+        guard let result else { throw CocoaError(.fileReadUnknown) }
+        return try result.get()
+    }
+}
+
 @MainActor
 final class RSSLibraryModel: ObservableObject {
     @Published private(set) var sources: [RssSource] = []
@@ -12,6 +42,7 @@ final class RSSLibraryModel: ObservableObject {
     @Published private(set) var records: [RssReadRecord] = []
     @Published private(set) var isWorking = false
     @Published var errorMessage: String?
+    @Published var successMessage: String?
 
     private var sourceRepository: SQLiteRssSourceRepository { get throws { .init(database: try database) } }
     private var articleRepository: SQLiteRssArticleRepository { get throws { .init(database: try database) } }
@@ -60,18 +91,34 @@ final class RSSLibraryModel: ObservableObject {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    func importFiles(_ urls: [URL]) async {
+    func importFiles(_ files: [RSSImportFile]) async {
+        guard !files.isEmpty else { return }
+        errorMessage = nil
+        successMessage = nil
         await perform {
+            let originalCount = self.sources.count
+            let importer = self.importer
             var merged = self.sources
-            for url in urls {
-                let granted = url.startAccessingSecurityScopedResource()
-                defer { if granted { url.stopAccessingSecurityScopedResource() } }
-                let payload = try self.importer.decode(Data(contentsOf: url))
-                merged = try self.importer.merge(payload.sources, into: merged)
-                for remote in payload.subscriptionURLs { merged = try await self.importRemote(remote, existing: merged) }
+            var importedSourceCount = 0
+            var subscriptionCount = 0
+            for file in files {
+                let data = try await Task.detached(priority: .userInitiated) {
+                    try file.read()
+                }.value
+                let payload = try await Task.detached(priority: .userInitiated) {
+                    try importer.decode(data)
+                }.value
+                importedSourceCount += payload.sources.count
+                subscriptionCount += payload.subscriptionURLs.count
+                merged = try importer.merge(payload.sources, into: merged)
+                for remote in payload.subscriptionURLs {
+                    merged = try await self.importRemote(remote, existing: merged)
+                }
             }
             try await self.sourceRepository.save(merged)
             self.sources = try await self.sourceRepository.all()
+            let addedCount = max(0, self.sources.count - originalCount)
+            self.successMessage = "导入完成：读取 \(files.count) 个文件，包含 \(importedSourceCount) 个 RSS 源和 \(subscriptionCount) 个远程订阅清单；新增 \(addedCount) 个，当前共 \(self.sources.count) 个。"
         }
     }
 
