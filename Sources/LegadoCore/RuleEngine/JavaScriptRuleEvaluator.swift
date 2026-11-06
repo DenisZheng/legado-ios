@@ -615,16 +615,26 @@ public struct JavaScriptRuleEvaluator: Sendable {
             JavaScriptRuleCache.shared.getFile(key)
         }
         let toURL: @convention(block) (String, String) -> [String: Any] = { rawURL, rawBaseURL in
-            let baseText = rawBaseURL.isEmpty ? executionContext.baseURL : rawBaseURL
-            let baseURL = baseText.isEmpty ? nil : URL(string: baseText)
-            guard let url = URL(string: rawURL, relativeTo: baseURL)?.absoluteURL,
+            // Android JsURL only resolves relative input when its explicit second
+            // argument is non-empty; it does not fall back to the current rule URL.
+            let baseURL = rawBaseURL.isEmpty ? nil : URL(string: rawBaseURL)
+            let parsedURL = URL(string: rawURL, relativeTo: baseURL)?.absoluteURL
+                ?? rawURL.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed)
+                    .flatMap { URL(string: $0, relativeTo: baseURL)?.absoluteURL }
+            guard let url = parsedURL,
                   let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
                   let host = components.host else {
                 return ["error": "Invalid URL: " + rawURL]
             }
             var params: [String: String] = [:]
-            for item in components.queryItems ?? [] {
-                params[item.name] = item.value ?? ""
+            if let query = components.percentEncodedQuery {
+                for part in query.split(separator: "&", omittingEmptySubsequences: false) {
+                    let pair = part.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                    guard pair.count == 2 else { continue }
+                    let key = String(pair[0])
+                    let encodedValue = String(pair[1]).replacingOccurrences(of: "+", with: "%20")
+                    params[key] = encodedValue.removingPercentEncoding ?? String(pair[1])
+                }
             }
             let origin = components.port.map { "\(components.scheme ?? "")://\(host):\($0)" }
                 ?? "\(components.scheme ?? "")://\(host)"
@@ -633,7 +643,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
                 "origin": origin,
                 "pathname": components.percentEncodedPath,
                 "href": url.absoluteString,
-                "searchParams": params
+                "searchParams": components.percentEncodedQuery == nil ? NSNull() : params as Any
             ]
         }
         let ajax: @convention(block) (Any?, Any?) -> String = { value, timeoutValue in
