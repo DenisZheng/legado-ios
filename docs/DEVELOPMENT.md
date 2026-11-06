@@ -64,6 +64,8 @@ RSS 界面回归还验证正文的手动刷新确实重新请求网络。核心�
 
 ## 兼容性验证
 
+RSS 的 Android 基准、P0～P3 任务依赖与验收标准见 [RSS 兼容实施计划](RSS_COMPATIBILITY_PLAN.md)，能力场景及真实源逐阶段记录规范见 [RSS 兼容验证矩阵](RSS_COMPATIBILITY_MATRIX.md)。实现状态和实测结果分别维护。
+
 最低部署版本为 iOS 15.0。`App/Compatibility.swift` 为导航、分享、照片选择和弹窗提供兼容实现；新增系统 API 时需保留最低版本路径。调试构建可用 `-uiLegacyCompatibility` 启动参数在新系统上执行旧版界面分支，对应回归位于 `Tests/LegadoReaderUITests/`。这些测试不能替代 iOS 15 真机或模拟器实测。
 
 搜索调度与缓存回归见 `Tests/LegadoCoreTests/SearchPerformanceTests.swift`，包括复杂书源限流和普通书源的及时执行；这些测试验证行为，不提供真实网络速度排名。
