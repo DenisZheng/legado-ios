@@ -516,8 +516,8 @@ struct RSSWebReaderView: UIViewRepresentable {
             guard let scheme = url.scheme?.lowercased(),
                   ["http", "https"].contains(scheme),
                   let host = url.host?.lowercased() else { return nil }
-            let port = url.port.map { ":\\($0)" } ?? ""
-            return "\\(scheme)://\\(host)\\(port)"
+            let port = url.port.map { ":\($0)" } ?? ""
+            return "\(scheme)://\(host)\(port)"
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
