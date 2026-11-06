@@ -8,7 +8,7 @@
 - iOS 起点：`feature/rss-navigation-compat`，`10afd1e8fcebdf88a41fa251a2af1f8d4bf984fa`。
 - Android 基准：本机 `E:\Projects\legado`，`330e606c4d57e08adc056ff8ab7a4132c784da9a`，只读对照。
 - 本计划依据该提交的实际代码；基准不是对所有 Android 版本的承诺。
-- 用户提供的“307 个有效源”和 API 使用次数是需求背景，本次未重新计算。工作区中尚未定位到这份完整导出，不能生成虚构的逐源结果。
+- 后续已收到根目录 `rssSources-valid (1).json`，本地核实为 307 条、307 个唯一 `sourceUrl`。已生成清单与逐阶段空矩阵，尚未执行真实源链路；静态盘点结果见 [测试矩阵的集合记录](RSS_COMPATIBILITY_MATRIX.md#307-源集合盘点)。原先 API 使用次数是需求背景，新统计为字面引用数，不代表动态执行次数。
 - 实现状态与验证状态分开记录：有同名函数不等于参数、返回类型、异常、线程和生命周期兼容。
 - 验证方法、代表场景和逐源记录格式见 [RSS_COMPATIBILITY_MATRIX.md](RSS_COMPATIBILITY_MATRIX.md)。
 
@@ -19,7 +19,7 @@
 | P0 规则兼容 | 常用 JS/DOM、URL 模板、动态 Header、Cookie 请求、顶层 WebView 请求、部分页面桥 | 契约差异、登录链路、页面 Cookie 同步、子资源补头、交互式 JS API |
 | P1 原生视频 | WebKit `<video>`；文章级收藏和历史 | RSS AVPlayer/AVKit 模块、媒体请求策略、续播、方向/倍速/手势、MPD 评估 |
 | P2 图文体验 | 单图查看、带头下载、保存相册、HTML 展示 | 缩放/连续浏览、懒加载、正文分页、位置保存恢复 |
-| P3 验证 | 两个公开 feed 检查、合成 XML、规则回归、三个 RSS UI 用例 | 完整源集合、逐阶段实测矩阵、登录/图片/视频真机覆盖 |
+| P3 验证 | 两个公开 feed 检查、合成 XML、规则回归、RSS UI；已收到 307 源并建立静态清单 | 逐阶段实际执行、登录/图片/视频真机覆盖 |
 
 ## Android 行为依据
 
@@ -30,6 +30,7 @@
 | 分析器 | `model/analyzeRule/AnalyzeRule.kt:104`：`setContent`/`setBaseUrl` 可链式调用；`:125`：`setRedirectUrl` 保存独立重定向地址，data URL/无效地址保留旧值，返回 URL 或 null；提取链接使用重定向地址 | `Sources/LegadoCore/RuleEngine/JavaScriptRuleEvaluator.swift` |
 | URL 对象 | `utils/JsURL.kt`：提供 `host/origin/pathname/searchParams`；不是修改参数就重写地址的浏览器 URL 对象 | 同上 `java.toURL` |
 | 缓存 | `help/CacheManager.kt`：`saveTime` 单位秒，0 为不限时；有期限的持久条目不放入无期限内存缓存；`onlyDisk` 不走内存 | `Sources/LegadoCore/RuleEngine/JavaScriptRuleCache.swift` |
+| 源自定义变量 | `data/entities/BaseSource.kt:331`：`setVariable`/`putVariable` 保存整段字符串，null 删除；`:356`：无参 `getVariable` 读取，缺省为空字符串；存储与 `get(key)/put(key,value)` 独立 | `JavaScriptRuleEvaluator.installSource` 当前缺少这组接口；真实集合有大量引用 |
 | HTTP JS | `help/JsExtensions.kt:575`：`get/head/post` 返回 Jsoup Response、不自动跟随重定向；页面 `help/webView/WebJsExtensions.kt:193` 接收 JSON Header 字符串，get/post 返回正文、head 返回 JSON 字符串 | 规则引擎及 `App/Features/RSS/RSSWebReaderView.swift`，两种上下文分别核对 |
 | 人工验证 | `help/JsExtensions.kt:399`：`startBrowser` 打开页面；`startBrowserAwait` 等待响应或重取；`getVerificationCode` 等待用户输入 | 当前仅有浏览器原生路由，尚无对应规则 API |
 | RSS 请求登录检查 | `model/rss/Rss.kt`：列表和正文请求完成后执行 `loginCheckJs`，失败响应也可进入检查，结果为响应对象 | `Sources/LegadoCore/RSS/RSSService.swift`；需要继续核对与网页登录检查的差别 |
@@ -62,6 +63,7 @@
 | P0-13 | 低频工具 API 缺失 | `t2s/s2t/htmlFormat/toNumChapter/getThemeConfig/getReadBookConfig/lock/singleFlight/tick/queryTTF/replaceFont` | 按真实调用建立样例；未支持项列明，字体解析和新依赖先给成本依据 |
 | P0-14 | 页面部分路由已有 | 补需要的 `java.open` 分支、方向锁定、关闭回调，与原生视频全屏协调 | 返回/关闭恢复页面状态和原方向；不绕过现有外部导航确认 |
 | P0-15 | 源字段尚有遗漏 | 核对 `nextContentUrl/enableReadRecord` 等导入、编辑、导出、持久化字段 | 不因导入成功就丢字段；分页随 P2-03 接通；历史字段行为先明确基准和产品设置 |
+| P0-16 | 源自定义变量 API 缺失，新集合确认高频 | 对齐 `source.getVariable()/setVariable()/putVariable()`，与已有键值 get/put 分开；核对页面侧使用范围 | 缺省、设置、null 清除、跨求值/重启、不同源隔离；动态分类与登录后重算使用相同变量；不简单别名到带参数的 get/put |
 
 `longToast`、`toURL`、常用 get/put/DOM、JavaImporter 白名单等保留已有实现，按矩阵扩展回归，不再安排重复开发。规则 `longToast` 当前只是诊断日志；文件缓存、任意 Java 类和全套 Cipher 仍不能宣称已兼容。
 
@@ -109,7 +111,7 @@
 | --- | --- | --- | --- |
 | M0 | 本文、P3-01 | 基准代码核对 | 任务、状态、依据和验收可追溯；文档先落地，再修改功能 |
 | M1 | P0-01 缓存期限回归与修复 | M0 | 确认 Android TTL 契约、补最小回归、验证实际修复提交；不扩展为缓存重构 |
-| M2 | P0-02/03/04，P3-02/03 开始 | M1；真实源部分需集合 | 分析器/HTTP/编码契约成组验证；补独立页面桥集成运行，不能以包测试替代 WKWebView |
+| M2 | 先 P0-16，再 P0-02/03/04；P3-03 开始 | M1；307 源清单现已提供 | 优先修复实际集合高频的源自定义变量，再验证分析器/HTTP/编码契约；补独立页面桥集成运行，不能以包测试替代 WKWebView |
 | M3 | P0-05/06/08/09 | M2 | 登录、Cookie、页面网络及资源补头形成可用链路；媒体方案先完成公开 API 技术验证 |
 | M4 | P0-07/10/11/14，P0-12/13 按源用量 | M2/M3 | 函数式 WebView、人工验证、实际用到的加密/工具；单个高成本 API 不阻塞已支持源验收 |
 | M5 | P1-01～07 | M3 媒体请求策略；P0-14 | 原生视频基础 → 请求/全屏 → 续播/交互；MPD 单独给评估结论 |
@@ -127,11 +129,14 @@
 | M0 | 已完成文档 | 固定两个仓库的起点，建立任务与测试矩阵 |
 | M1 | 已实施，验收以修复提交 CI 为准 | 新增 5 项缓存回归及 1 项跨 JS 求值回归；旧实现 `a474da6` 在 [42211370651](https://github.com/DenisZheng/legado-ios/actions/runs/42211370651) 出现 3 项预期失败、4 个断言问题；随后修复限时条目进入永久内存缓存的问题，并补并发读写回归 |
 | M2～M6 | 未开始本轮实施 | 已有功能见快照表；不会将此前实现重复算为本轮交付 |
-| P3-02～04 | 待源集合定位与执行 | 尚未建立 307 条源的结果，不以两个公开 feed 替代 |
+| P3-02 | 本地清单已建立 | `rssSources-valid (1).json`：307 条且无重复；固定文件指纹并生成 2456 条逐阶段记录；Android/iOS 实际执行仍未进行 |
+| P3-03/04 | 待执行 | 逐源记录当前全部为 `NOT_RUN`；不能以 JSON 结构有效或静态引用统计替代真实规则执行 |
 
 M1 使用可注入时钟和独立 UserDefaults 测试存储，覆盖到期前读回/到期后失效、限时覆盖、显式内存覆盖、onlyDisk、不限时重写和两次 JS 求值。修复调整内存提升条件，并把同一缓存实例的持久文本/内存读写放进同一临界区，避免并发读到新值与旧期限的组合。不扩展缓存 API 或改变生产存储格式。最终验证应查询本分支对应修复提交的 [Build iOS IPA](https://github.com/DenisZheng/legado-ios/actions/workflows/build-ios.yml)。
 
-集合定位补充：在项目目录发现 Android `app/src/main/assets/defaultData/rssSources.json`，只有 4 条内置源，不能代替用户提供的 307 条集合。
+缓存范围边界：本批回归覆盖 `saveTime = 0` 和正整数秒。负数目前在 JS 桥中被归零，而 Android 文本缓存会计算已过去的 deadline；这一差异仍归 P0-01 后续，不因修复永久内存提升问题就宣称全套 cache 参数契约一致。文件缓存和非文本值也需按实际源调用继续核对。
+
+集合定位补充：最初只找到 Android `app/src/main/assets/defaultData/rssSources.json` 的 4 条内置源；用户随后提供完整 307 源。原文件保留根目录，通过本地 `.git/info/exclude` 排除，清单与结果放在已忽略的 `artifacts/rss-compat/20261106-inventory/`。
 
 M1 验证补充：`1555ea3` 的 [运行 42212284372](https://github.com/DenisZheng/legado-ios/actions/runs/42212284372) 中 391 项核心测试通过；RSS UI 有 1 项失败，另 2 项通过。失败发生在 Files 冷启动后未点击 Browse 就查找 On My iPhone，尚未选中文件。随后修正该测试的就绪状态等待与目录导航，保留最终导入断言；完整 CI 仍须验证后续修复提交。
 
@@ -139,11 +144,14 @@ M1 验证补充：`1555ea3` 的 [运行 42212284372](https://github.com/DenisZhe
 
 本地文件链路补充：对照现有书源实现后，RSS 改为复用 `SourceFileImportPicker` 和 `SourceImportFile`：选择 `.item` 副本、回调时持有访问权限、通过 `NSFileCoordinator` 后台读取；文件返回和 sheet 关闭都完成后才启动导入。RSS 保留自身 JSON 解码、错误文案和持久化逻辑。原先仅凭 `asCopy: true` 就直接异步读取 URL 的实现未覆盖书源已有的完整时序。新增多文件/混合扩展名和失败不部分入库回归，RSS UI 增加取消后重开；RSS CI Scheme 同时加入现有书源 JSON 文件导入用例，以验证共享组件。此变更须由后续提交的 CI 验证，不能引用旧运行证明。
 
+`ce9e857` 的 [运行 42219274584](https://github.com/DenisZheng/legado-ios/actions/runs/42219274584) 通过 393 项核心回归，4 项 UI 中 2 项通过、2 项失败。书源丢失第二个文件，RSS 返回空文件列表，系统均记录文件 ID 不存在。该次全新模拟器实际为 iOS 26.4，不能认为仅换新设备已解决问题。`4edf2b9` 固定 iOS 26.2，并将样本放到 Files 自身的 `Legado Import Fixtures` 目录，通过原选择器和导入断言继续验证，结果以 [运行 42224416883](https://github.com/DenisZheng/legado-ios/actions/runs/42224416883) 为准。
+
 ## 平台资料
 
 2026-11-06 经 Context7 查询 Apple Developer Documentation，选择 `/websites/developer_apple_de`（Apple 官方文档镜像索引）。以下仅支持设计约束，不代表已完成设备实验：
 
 - [WKWebsiteDataStore.httpCookieStore](https://developer.apple.com/documentation/webkit/wkwebsitedatastore/httpcookiestore)：WKWebView 的 Cookie 管理入口，需显式同步。
+- [UIDocumentPickerViewController](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller)：外部文档需协调读取与成对的 security-scoped 访问；本地副本不一定需要额外授权，共用读取对象仅在取得授权时释放，不能将 `startAccessingSecurityScopedResource() == false` 一律视为副本不可读。
 - [WKURLSchemeHandler](https://developer.apple.com/documentation/webkit/wkurlschemehandler)：处理 WebKit 不原生处理的 scheme。
 - [AVAssetResourceLoadingRequest](https://developer.apple.com/documentation/avfoundation/avassetresourceloadingrequest)：资源加载协助和完成/失败回调。
 - [使用 AVFoundation 播放和保存 HLS](https://developer.apple.com/documentation/avfoundation/using-avfoundation-to-play-and-persist-http-live-streams)：HLS 能力参考；具体 Header/Cookie 路径仍需实测。

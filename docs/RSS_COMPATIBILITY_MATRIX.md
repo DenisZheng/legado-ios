@@ -50,6 +50,7 @@
 | C18 | P2-02/05 | 长文懒加载、滚动、关闭重开、旋转 | 图片完成后位置仍正确，源脚本不被破坏 | WebView 集成 + UI |
 | C19 | P0-15/P2-03 | nextContentUrl 单链、多链接、重复/回环、第二页失败 | 有限请求、有序正文、不丢页；刷新取消/重试行为明确 | RSSService 注入 transport + 页面模型 |
 | C20 | P0-15/P1-07/P2-05 | 导入/编辑/导出/重启，历史开关 | 字段和位置不丢失；全局开关与源字段规则明确 | 导入/持久化/页面模型 |
+| C21 | P0-16 | 无参 getVariable、setVariable/putVariable、null 清除、多源及两次求值 | 整段源变量与 get/put 键值存储独立；动态分类/登录前后读写和重启恢复正确 | 规则回归、RSSSortResolver、需要源变量的代表源 |
 
 ## 真实源记录格式
 
@@ -104,6 +105,46 @@ RSS UI 本地服务、Files 夹具和完整验证见 [开发指南](DEVELOPMENT.
 
 | 场景 | 状态 | 证据 |
 | --- | --- | --- |
-| C01/C02 | 回归和修复已实施；修复结果以对应 CI 为准 | `JavaScriptRuleCacheTests` 5 项及 `JavaScriptRuleEvaluatorTests.expiringCacheEntriesStayOutOfMemoryAcrossJavaScriptEvaluations`；[旧实现验证](https://github.com/DenisZheng/legado-ios/actions/runs/42211370651) 已复现到期后仍返回旧值，及限时值错误暴露在内存中的问题；最终修复另补并发读取回归 |
-| C03～C20 | 按各任务继续 | 既有测试见文件，不宣称完成本轮所有场景 |
-| 真实源逐条矩阵 | NOT_RUN | 尚未定位完整源集合；本文只是记录规范和能力场景 |
+| C01/C02 | 本批正整数期限/不限时契约回归通过 | `JavaScriptRuleCacheTests` 5 项及跨 JS 求值回归；[旧实现验证](https://github.com/DenisZheng/legado-ios/actions/runs/42211370651) 已复现过期仍返回旧值；`ce9e857` 的 [393 项核心回归](https://github.com/DenisZheng/legado-ios/actions/runs/42219274584) 通过。负期限和文件缓存仍按计划核对 |
+| 本地文件导入 | 核心通过，UI 未通过 | `ce9e857` 已复用书源链路；两条文件 UI 仍有系统文件 ID 回传失败。后续 `4edf2b9` 从 Files 本地目录重验，保留全部断言 |
+| C03～C21 | 按各任务继续 | 既有测试见文件，不宣称完成本轮所有场景 |
+| 真实源逐条矩阵 | 2456 项均为 NOT_RUN | 已收到 307 条完整源；只完成结构/能力盘点，尚未执行 Android/iOS 规则与页面链路 |
+
+## 307 源集合盘点
+
+输入：根目录 `rssSources-valid (1).json`，1,674,112 字节；SHA-256：`0e30301c85fb511961be7542212ee63b8d4173a9b6c33bb5a4f88eb6d3795f45`。JSON 解码有效，307 条对象、307 个唯一且非空的 `sourceUrl`，没有静默去重。原文件已加入本地 Git 排除规则，不进入提交。
+
+本地输出位于 `artifacts/rss-compat/20261106-inventory/`：`manifest.json` 固定输入与两仓库提交，`source-index.json` 保存本地源身份及能力标签，`results.csv` 为 307 × 8 = 2456 条阶段记录，全部 `NOT_RUN`。本次不联网、不执行源 JS，因此 JSON 结构有效不等同 iOS 导入成功。
+
+| 结构/能力 | 源数 | 验证意义 |
+| --- | ---: | --- |
+| `singleUrl = true` | 155 | 需单页/网页路径，不能统一套用列表刷新测试 |
+| 非空 `ruleArticles` | 154 | 需原始列表规则执行 |
+| 非空 `header` | 79 | 静态/动态请求头需分别核对 |
+| 非空 `loginUrl` / `loginUi` / `loginCheckJs` | 14 / 8 / 1 | 按表单、网页登录和响应检查分别选样 |
+| 非空 `injectJs` / `preloadJs` / `jsLib` | 43 / 1 / 7 | 规则与页面运行上下文分别验证 |
+| 非空 `ruleContent` / `ruleNextPage` | 78 / 106 | 正文与列表分页分别记录 |
+| HLS 字面引用 | 10 | 只表示出现 `.m3u8`，不代表视频播放成功 |
+| 所有源 `type = 0`；无 `nextContentUrl` 字段 | 307 / 0 | 不能据 type 推断没有媒体；正文分页仍是产品计划任务 |
+
+脚本按源计数、排除显示名称/分组/备注字段，识别 `obj.method()` 与 `obj["method"]()` 的字面引用；没有完整 JS 语法分析，会漏掉动态构造，也可能包含未执行分支或脚本注释。以下是选择代表源的线索，不能当成运行覆盖率：
+
+| 引用 | 源数 | 对应任务 |
+| --- | ---: | --- |
+| `source.getVariable()` / `source.setVariable()` | 49 / 20 | 新增 P0-16，提到 M2 首位；其中 42 条在 sortUrl 引用 getVariable |
+| `java.getString` / `java.ajax` / `java.get` / `java.put` | 29 / 25 / 20 / 19 | P0-02/03/04 与已有变量行为 |
+| `java.longToast` / `java.toURL` | 10 / 7 | 已有子集，验证实际返回和行为 |
+| `java.startBrowser` / `java.getVerificationCode` / `java.startBrowserAwait` | 6 / 6 / 2 | P0-11 |
+| `java.createSymmetricCrypto` | 5 | P0-10 |
+| `java.webView` / `java.webViewGetOverrideUrl` | 2 / 1 | P0-07 |
+| 任意 cache 方法 | 6 | P0-01/08，按文本、显式内存、文件分别选样 |
+
+`source.getVariable()` 的 102 处字面调用均无参数，且未发现同名的源内方法定义。Android `BaseSource` 的整段自定义变量与 `get(key)/put(key,value)` 为两个存储空间；当前 iOS `installSource` 未暴露这组方法，不能把现有 get/put 算成已兼容。`source.getLoginInfo`、`java.deviceID/digestHex/md5Encode16` 等各 1 条引用留作后续逐项契约核查。
+
+可复现入口（输出目录必须为新目录，避免覆盖结果）：
+
+```sh
+python scripts/inventory-rss-sources.py "rssSources-valid (1).json" --output artifacts/rss-compat/20261106-inventory-repeat --ios-commit ce9e857d8c5b4b110d4c9f534863a020fbb69641 --android-commit 330e606c4d57e08adc056ff8ab7a4132c784da9a
+```
+
+下一轮代表源按以下顺序挑选：默认 feed → 无 JS 的自定义列表 → 源自定义变量/动态分类 → Header/Cookie → 登录/验证码 → 页面桥/媒体。当前 `source-index.json` 的标签为启发式分类，选择后仍须检查原始规则及前置条件。
