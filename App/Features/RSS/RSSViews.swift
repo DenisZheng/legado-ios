@@ -249,10 +249,22 @@ private struct RSSStandaloneReaderView: View {
                 case .start(let mode): ReadingNavigationStack { RSSStandaloneReaderView(source: source, mode: mode) }
                 }
             }
-            .alert("提示", isPresented: Binding(get: { webMessage != nil }, set: { if !$0 { webMessage = nil } })) {
-                Button("好") { webMessage = nil }
-            } message: {
-                Text(webMessage ?? "")
+            .overlay(alignment: .top) {
+                if let webMessage {
+                    Text(webMessage)
+                        .font(.callout)
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(.regularMaterial, in: Capsule())
+                        .padding(.top, 12)
+                        .accessibilityIdentifier("rssJavaScriptToast")
+                }
+            }
+            .task(id: webMessage) {
+                guard webMessage != nil else { return }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if !Task.isCancelled { webMessage = nil }
             }
     }
     private func handle(_ action: RSSWebAction) {
@@ -412,10 +424,22 @@ private struct RSSArticleDetailView: View {
             case .start(let value): ReadingNavigationStack { RSSStandaloneReaderView(source: source, mode: value) }
             }
         }
-        .alert("提示", isPresented: Binding(get: { webMessage != nil }, set: { if !$0 { webMessage = nil } })) {
-            Button("好") { webMessage = nil }
-        } message: {
-            Text(webMessage ?? "")
+        .overlay(alignment: .top) {
+            if let webMessage {
+                Text(webMessage)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 12)
+                    .accessibilityIdentifier("rssJavaScriptToast")
+            }
+        }
+        .task(id: webMessage) {
+            guard webMessage != nil else { return }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if !Task.isCancelled { webMessage = nil }
         }
     }
 
