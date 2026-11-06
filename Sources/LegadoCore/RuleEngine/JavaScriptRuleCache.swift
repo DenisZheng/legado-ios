@@ -3,8 +3,8 @@ import Foundation
 /// Small synchronous cache surface matching the Android Legado JavaScript `cache` object.
 /// Persistent text entries use UserDefaults with an optional expiry; memory entries are
 /// process-local; file entries live in the app's Caches directory.
-final class JavaScriptRuleCache: @unchecked Sendable {
-    static let shared = JavaScriptRuleCache()
+public final class JavaScriptRuleCache: @unchecked Sendable {
+    public static let shared = JavaScriptRuleCache()
 
     private struct Entry {
         let value: String
@@ -20,7 +20,7 @@ final class JavaScriptRuleCache: @unchecked Sendable {
 
     private init() {}
 
-    func put(_ key: String, value: String, saveTime: Int = 0) {
+    public func put(_ key: String, value: String, saveTime: Int = 0) {
         let expiry = saveTime > 0 ? Date().addingTimeInterval(TimeInterval(saveTime)) : nil
         let entry = Entry(value: value, expiresAt: expiry)
         lock.lock()
@@ -36,7 +36,7 @@ final class JavaScriptRuleCache: @unchecked Sendable {
         }
     }
 
-    func get(_ key: String, onlyDisk: Bool = false) -> String? {
+    public func get(_ key: String, onlyDisk: Bool = false) -> String? {
         if !onlyDisk, let value = getFromMemory(key) { return value }
         let storageKey = prefix + key
         if let expiry = defaults.object(forKey: storageKey + ".expires") as? Double,
@@ -50,13 +50,13 @@ final class JavaScriptRuleCache: @unchecked Sendable {
         return value
     }
 
-    func putMemory(_ key: String, value: String) {
+    public func putMemory(_ key: String, value: String) {
         lock.lock()
         memory[key] = Entry(value: value, expiresAt: nil)
         lock.unlock()
     }
 
-    func getFromMemory(_ key: String) -> String? {
+    public func getFromMemory(_ key: String) -> String? {
         lock.lock()
         let entry = memory[key]
         if let expiry = entry?.expiresAt, expiry <= Date() {
@@ -68,20 +68,20 @@ final class JavaScriptRuleCache: @unchecked Sendable {
         return entry?.value
     }
 
-    func deleteMemory(_ key: String) {
+    public func deleteMemory(_ key: String) {
         lock.lock()
         memory.removeValue(forKey: key)
         lock.unlock()
     }
 
-    func delete(_ key: String) {
+    public func delete(_ key: String) {
         deleteMemory(key)
         defaults.removeObject(forKey: prefix + key)
         defaults.removeObject(forKey: prefix + key + ".expires")
         try? FileManager.default.removeItem(at: fileURL(for: key))
     }
 
-    func putFile(_ key: String, value: String, saveTime: Int = 0) throws {
+    public func putFile(_ key: String, value: String, saveTime: Int = 0) throws {
         let url = fileURL(for: key)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
@@ -96,7 +96,7 @@ final class JavaScriptRuleCache: @unchecked Sendable {
         }
     }
 
-    func getFile(_ key: String) -> String? {
+    public func getFile(_ key: String) -> String? {
         let url = fileURL(for: key)
         if let expiry = defaults.object(forKey: url.path + ".expires") as? Double,
            expiry <= Date().timeIntervalSince1970 {
