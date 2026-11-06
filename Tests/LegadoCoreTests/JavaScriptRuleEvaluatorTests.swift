@@ -218,6 +218,42 @@ struct JavaScriptRuleEvaluatorTests {
         #expect(directJSON.value.stringValue == "书名:42")
     }
 
+    @Test func supportsAndroidRSSGetElementsSetContentAndGetStringList() throws {
+        let html = #"""
+            <div class="authorname">甲<font>№1</font><div>作者甲</div></div>
+            <div class="authorname">乙<font>№2</font><div>作者乙</div></div>
+            """#
+        let script = #"""
+            var numbers = java.getStringList("@@class.authorname@font.0@text");
+            var authors = java.getStringList("@@class.authorname@div@textNodes&&class.authorname@ownText");
+            var elements = java.getElements("@@class.authorname@div");
+            java.setContent(elements[0]);
+            var current = java.getString("@text");
+            var parsed = org.jsoup.Jsoup.parse("<article><a href='/chapter/1'>第一章</a></article>");
+            var selected = parsed.select("a");
+            numbers.join(",") + "|" + authors.join(",") + "|" + elements.length + "|" +
+              current + "|" + selected.text() + "|" + selected.attr("href");
+            """#
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: script,
+            result: .string(html),
+            executionContext: .init(baseURL: "https://rss.example.test/")
+        )
+
+        #expect(value.value.stringValue == "№1,№2|作者甲,作者乙,甲,乙|2|作者甲|第一章|/chapter/1")
+    }
+
+    @Test func supportsJsoupConnectionHeadAndGet() throws {
+        let evaluator = JavaScriptRuleEvaluator(networkLoader: JavaScriptAjaxAllMock())
+        let value = try evaluator.evaluate(
+            script: "var r=org.jsoup.Jsoup.connect('https://ajax-all.test/get').timeout(5000).execute(); r.statusCode() + ':' + r.body()",
+            result: .null,
+            executionContext: .init()
+        )
+
+        #expect(value.value.stringValue == "200:body:get")
+    }
+
     @Test func jsonParseKeepsPlainTextResponsesButStillRejectsBrokenJSON() throws {
         let evaluator = JavaScriptRuleEvaluator()
         let plain = try evaluator.evaluate(
