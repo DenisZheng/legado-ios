@@ -58,6 +58,8 @@ jobs:
 
           DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
           test -n "$DEVICE_ID"
+          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
           sh scripts/prepare-source-import-fixture.sh "$DEVICE_ID"
 
           xcodebuild \
