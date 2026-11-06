@@ -250,6 +250,7 @@ struct JavaScriptRuleEvaluatorTests {
                   '<article><a href="/chapter/2">第二章</a></article>',
                   'https://rss.example.test/book/'
                 );
+                analyzer.setBaseUrl(null);
                 analyzer.getString('a@text') + '|' +
                   analyzer.getString('a@href', null, true) + '|' +
                   (typeof analyzer.getElements === 'function');
