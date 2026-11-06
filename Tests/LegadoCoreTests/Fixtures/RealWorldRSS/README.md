@@ -10,8 +10,10 @@ project maintainer's supplied Legado source collection.
 | 少数派 | https://sspai.com/feed | RSS 2.0 |
 | 异次元软件世界 | https://feed.iplaysoft.com/ | RSS / Atom feed |
 
-The endpoint choices were cross-checked against public feed directories on
-2026-11-06. These tests do not make live network requests.
+The endpoints were also checked live by GitHub Actions on 2026-11-06:
+both returned HTTP 200 and valid RSS XML. The smoke run found 10 valid entries
+for 少数派 and 30 for 异次元软件世界. See
+[Public RSS Live Smoke Test](https://github.com/DenisZheng/legado-ios/actions/runs/42177537134).
 
 ## Fixture policy
 
