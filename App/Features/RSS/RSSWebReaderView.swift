@@ -131,7 +131,7 @@ struct RSSWebReaderView: UIViewRepresentable {
                 (timeout == null ? '' : ',' + Number(timeout)) +
                 ');return {url:r.url().toString(),body:r.body(),code:r.statusCode(),headers:r.headers()};})()'
               );
-              java.get = (url, headers, timeout) => {
+              java.get = function (url, headers, timeout) {
                 if (arguments.length === 1) return get(url);
                 return evaluateJS('(function(){var r=java.get(' + JSON.stringify(String(url)) + ',' +
                   JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) +
