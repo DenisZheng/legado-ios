@@ -69,6 +69,7 @@ struct RSSWebReaderView: UIViewRepresentable {
         private var signature = ""
         private var rulesInstalled = false
         private var bridgeEnabled = false
+        private var trustedMainFrameOrigin: String?
         private let htmlProcessor = RSSHTMLProcessor()
         private var analyzeContent: JSONValue = .string("")
         private var analyzeBaseURL = ""
@@ -242,6 +243,14 @@ struct RSSWebReaderView: UIViewRepresentable {
             let newSignature = String(describing: mode)
             guard signature != newSignature else { return }
             signature = newSignature
+            switch mode {
+            case .html(_, let baseURL), .startHTML(_, let baseURL):
+                trustedMainFrameOrigin = Self.webOrigin(baseURL) ?? Self.webOrigin(source.sourceUrl)
+            case .image(let value), .video(let value):
+                trustedMainFrameOrigin = Self.webOrigin(value)
+            case .web:
+                trustedMainFrameOrigin = nil
+            }
             switch mode {
             case .html(let content, let baseURL):
                 webView.loadHTMLString(htmlProcessor.contentHTML(content, style: source.style), baseURL: baseURL.flatMap(URL.init(string:)))
@@ -477,10 +486,30 @@ struct RSSWebReaderView: UIViewRepresentable {
             if !["http", "https", "file", "data", "about"].contains(scheme) {
                 UIApplication.shared.open(url); decisionHandler(.cancel); return
             }
+            if bridgeEnabled, navigationAction.targetFrame?.isMainFrame != false,
+               ["http", "https"].contains(scheme),
+               Self.webOrigin(url) != trustedMainFrameOrigin {
+                decisionHandler(.cancel)
+                DispatchQueue.main.async { self.onAction(.openBrowser(url.absoluteString)) }
+                return
+            }
             if navigationAction.navigationType == .linkActivated, shouldOverride(url.absoluteString) {
                 decisionHandler(.cancel); return
             }
             decisionHandler(.allow)
+        }
+
+        private static func webOrigin(_ rawValue: String?) -> String? {
+            guard let rawValue, let url = URL(string: rawValue) else { return nil }
+            return webOrigin(url)
+        }
+
+        private static func webOrigin(_ url: URL) -> String? {
+            guard let scheme = url.scheme?.lowercased(),
+                  ["http", "https"].contains(scheme),
+                  let host = url.host?.lowercased() else { return nil }
+            let port = url.port.map { ":\\($0)" } ?? ""
+            return "\\(scheme)://\\(host)\\(port)"
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
