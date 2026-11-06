@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>异次元软件世界</title>
+    <link>https://www.iplaysoft.com/</link>
+    <description>软件、互联网与数字生活</description>
+    <item>
+      <title>公开测试条目 C</title>
+      <link>https://www.iplaysoft.com/test-c</link>
+      <pubDate>Fri, 06 Nov 2026 09:00:00 +0800</pubDate>
+      <description><![CDATA[用于 RSS 解析回归测试的脱敏摘要。]]></description>
+    </item>
+  </channel>
+</rss>
