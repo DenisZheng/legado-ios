@@ -3,6 +3,35 @@ import Testing
 @testable import LegadoCore
 
 struct RSSRegressionTests {
+    @Test func publicRealWorldRSSManifestAndFixturesRemainImportable() throws {
+        let manifestURL = try #require(Bundle.module.url(
+            forResource: "sources",
+            withExtension: "json",
+            subdirectory: "Fixtures/RealWorldRSS"
+        ))
+        let payload = try RSSSourceImporter().decode(Data(contentsOf: manifestURL))
+        #expect(payload.sources.map(\.sourceName) == ["少数派", "异次元软件世界"])
+        #expect(payload.sources.map(\.sourceUrl) == ["https://sspai.com/feed", "https://feed.iplaysoft.com/"])
+        #expect(payload.sources.allSatisfy { $0.ruleArticles == nil && $0.enableJs == false })
+
+        let fixtures = [
+            ("sspai", "https://sspai.com/feed", 2),
+            ("iplaysoft", "https://feed.iplaysoft.com/", 1)
+        ]
+        for (name, sourceURL, expectedCount) in fixtures {
+            let fixtureURL = try #require(Bundle.module.url(
+                forResource: name,
+                withExtension: "xml",
+                subdirectory: "Fixtures/RealWorldRSS"
+            ))
+            let xml = try String(contentsOf: fixtureURL, encoding: .utf8)
+            let parsed = try RSSDefaultParser.parse(sortName: "全部", xml: xml, sourceURL: sourceURL)
+            #expect(parsed.articles.count == expectedCount)
+            #expect(parsed.articles.first?.origin == sourceURL)
+            #expect(parsed.articles.first?.title.hasPrefix("公开测试条目") == true)
+        }
+    }
+
     @Test func concurrentSourceTogglesDoNotOverwriteOneAnother() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
