@@ -9,6 +9,8 @@
 
 在独立仓库根目录打开 `Legado.xcodeproj`，选择 `Legado` Scheme。真机运行需要自行设置签名团队；请勿将证书或描述文件提交到仓库。
 
+从 Windows 换 Mac 继续 RSS 开发时，仓库拉取、307 源文件迁移、模拟器命令和剩余任务见 [Mac 接续说明](MAC_HANDOFF.md)。
+
 ## 代码结构
 
 | 路径 | 用途 |
@@ -37,6 +39,26 @@ xcodebuild -project Legado.xcodeproj -scheme Legado \
 sh scripts/self-check.sh
 ```
 
+GitHub Actions 的 `.github/workflows/build-ios.yml` 提供三种模式，工作流名为 `iOS Build and Test`：
+
+| 模式 | 触发方式 | 验证内容 | IPA |
+| --- | --- | --- | --- |
+| `build` | 手动运行的默认选项 | 解析依赖并编译 Debug App；使用通用 iOS Simulator 目标，不启动模拟器、不执行测试 | 不生成 |
+| `test` | 相关源码推送时自动运行，也可手动选择 | 核心包测试、4 项 RSS/书源 UI 回归、`WebReaderBridgeTests`；测试过程包含 App 编译 | 不生成 |
+| `ipa` | 手动选择 | `test` 的全部验证，再执行 Release Archive、打包和上传 | 未签名 IPA |
+
+当前 Fork 的 `main` 尚无此工作流文件，分支模式已通过 `gh` 实际触发；合并前优先使用以下命令。工作流进入默认分支后，可在 Actions 页面选择分支和 `mode`：
+
+```sh
+gh workflow run build-ios.yml --repo DenisZheng/legado-ios --ref feature/rss-navigation-compat -f mode=build
+gh workflow run build-ios.yml --repo DenisZheng/legado-ios --ref feature/rss-navigation-compat -f mode=test
+gh workflow run build-ios.yml --repo DenisZheng/legado-ios --ref feature/rss-navigation-compat -f mode=ipa
+```
+
+同一分支、同一模式的新运行会取消旧运行；不同模式互不取消。普通推送保留行为回归，只移除重复的 Release 编译和产物生成。`build` 适合快速检查编译错误，通过它不能替代功能回归或 Release Archive。上一次完整构建的 Archive 约 10 分钟，ZIP 打包仅几秒，因此提速主要来自按需执行 Archive。
+
+`f7f5d3a` 的 [build 验证 42229925320](https://github.com/DenisZheng/legado-ios/actions/runs/42229925320) 已通过，job 耗时 6 分 2 秒，测试与 Archive/打包/上传均未执行，产物数量为 0。该耗时是一次实测，后续仍受 runner 排队和依赖下载影响。
+
 首次运行可先在 Xcode 解析包；自检的 App 构建阶段固定使用已解析依赖。可用 `LEGADO_DERIVED_DATA_PATH` 和 `LEGADO_SOURCE_PACKAGES_PATH` 指定已有缓存。
 
 阅读器测试在 Xcode 选择 `LegadoReaderTests` / `LegadoReaderUITests` Scheme 和具体模拟器运行。联网书源测试需要显式配置对应环境变量，默认核心回归主要采用自造响应，不能将其通过解读为所有线上书源均可用。
@@ -54,9 +76,9 @@ xcodebuild -project Legado.xcodeproj -scheme LegadoReaderUITests \
   -collect-test-diagnostics never CODE_SIGNING_ALLOWED=NO test
 ```
 
-独立测试应用提供 JSON 书源和 `.txt`、`.TXT`、`.epub` 小说样本，不会被打包进正式 App。此回归检查取消后重新打开、书源 JSON 多选、本地 TXT / EPUB 可选且 JSON 不可选、导入确认、最终保存、EPUB 正文、插图与目录跳转。
+独立测试应用提供 JSON 书源和 `.txt`、`.TXT`、`.epub` 小说样本，不会被打包进正式 App。准备脚本只安装夹具应用；文件 UI 用例会启动它，通过 `UIDocumentPickerViewController(forExporting:asCopy:)` 把含 7 个文件的目录保存到 `On My iPhone`，并逐个核对导出后的内容，再启动正式 App 导入。每次测试运行使用唯一目录名，避免覆盖既有样本。此回归检查取消后重新打开、书源 JSON 多选、本地 TXT / EPUB 可选且 JSON 不可选、导入确认、最终保存、EPUB 正文、插图与目录跳转。
 
-测试夹具仅在内容变化时原位写入文件，保持文件标识稳定。iOS 26 模拟器的 Files 提供器可能在样本被原子替换后返回「文件不存在」，导致已勾选文件未回传；遇到旧夹具残留时，卸载模拟器中的「书源导入测试」后重新运行准备脚本。
+不从宿主机直接写 Files 的 `File Provider Storage` 目录：磁盘可读不等于系统文档 ID 已正确登记。历史上原位写、全新模拟器、固定 runtime 和复制到 Files 本地容器均不足以保证稳定；不要通过清除提供器数据库或删断言处理。Mac 上也保留实际选择和最终入库验证。
 
 RSS 的导入、源内搜索、分页、正文、收藏以及重启恢复可通过本地自造响应回归，避免依赖第三方网站。先在一个终端运行 `python3 scripts/fixtures/rss-flow-server.py`，再在 Xcode 选择 `LegadoRSSFlowUITests` Scheme 和模拟器运行；也可用 `xcodebuild -project Legado.xcodeproj -scheme LegadoRSSFlowUITests -destination 'platform=iOS Simulator,id=模拟器UUID' CODE_SIGNING_ALLOWED=NO test`。该服务仅监听本机 `127.0.0.1:18763`，测试结束后按 Ctrl-C 停止。普通 UI Scheme 默认跳过此用例。
 
@@ -72,9 +94,11 @@ RSS 和书源现在共用 `SourceFileImportPicker`/`SourceImportFile`：选择�
 
 运行 `42219274584` 的 393 项核心测试通过；书源和 RSS 文件 UI 各失败一项。书源只收到了第一个文件，第二个文件的 `did=8` 无法解析；RSS 的 `did=4` 同样返回 `NSFileProviderErrorDomain -1005`。全新设备也发生此问题，说明仅隔离预置设备不足以解决。该运行因设备列表顺序选到了 iOS 26.4，后续 CI 明确固定 iPhone 17 Pro / iOS 26.2，避免混淆系统版本。
 
-准备脚本仍用独立应用生成 7 个样本，随后 `scripts/fixtures/stage-source-import-files.py` 将样本放入该模拟器的 Files 本地目录 `On My iPhone > Legado Import Fixtures`。测试从这一真实 Files 位置选择文件，继续验证跨容器副本导入；不直接调用应用导入方法，不修改文件提供器数据库。`4edf2b9` 的运行 `42224416883` 已通过核心及 RSS UI 回归步骤，验证了固定 iOS 26.2 和 Files 本地夹具的组合；未据此证明 File Provider 内部根因或其他提供器行为。原始示例中的“书源导入测试”是生成样本的应用名称，当前回归选择的是 `Legado Import Fixtures` 文件夹。
+历史方案 `4edf2b9` 使用独立应用生成 7 个样本，再从宿主机复制到 Files 本地容器；运行 `42224416883` 曾通过全部回归，但同一方案在 `f7f5d3a` 的 [42229891543](https://github.com/DenisZheng/legado-ios/actions/runs/42229891543) 再次失败。书源两个文档 ID 和 RSS 文档 ID 返回 `NSFileProviderErrorDomain -1005`，DocumentManager 收到空数组；397 项核心、入口与搜索阅读 UI 通过，两个文件导入 UI 失败，网页桥被前置失败阻断。这不是 RSS 解码错误，也不能根据一次历史绿色宣称 Files 问题已根治。
 
-该运行最终通过 393 tests / 50 suites、4 项 UI 回归、Archive 和 IPA 上传。工具链为 Xcode 26.6（17F113），与固定的模拟器 runtime 分开记录。产物下载后 SHA-256 和 ZIP 完整性校验通过，版本 0.1.14（20）；未签名 IPA 需要签名后安装，不能把构建成功等同真实源或真机验证完成。
+`773bd20` 改为系统导出后再导入，移除宿主机复制脚本；网页桥步骤在 UI 失败后仍运行，原步骤失败仍令总 CI 失败，IPA 不会因此放行。对应 [运行 42233746082](https://github.com/DenisZheng/legado-ios/actions/runs/42233746082) 待完成验证。
+
+历史运行 `42224416883` 通过 393 tests / 50 suites、4 项 UI 回归、Archive 和 IPA 上传。工具链为 Xcode 26.6（17F113），与固定的模拟器 runtime 分开记录。产物下载后 SHA-256 和 ZIP 完整性校验通过，版本 0.1.14（20）；不包含本轮新增源变量接口。未签名 IPA 需要签名后安装，不能把构建成功等同真实源或真机验证完成。
 
 RSS 的 Android 基准、P0～P3 任务依赖与验收标准见 [RSS 兼容实施计划](RSS_COMPATIBILITY_PLAN.md)，能力场景及真实源逐阶段记录规范见 [RSS 兼容验证矩阵](RSS_COMPATIBILITY_MATRIX.md)。实现状态和实测结果分别维护。
 

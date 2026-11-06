@@ -30,7 +30,7 @@
 | 分析器 | `model/analyzeRule/AnalyzeRule.kt:104`：`setContent`/`setBaseUrl` 可链式调用；`:125`：`setRedirectUrl` 保存独立重定向地址，data URL/无效地址保留旧值，返回 URL 或 null；提取链接使用重定向地址 | `Sources/LegadoCore/RuleEngine/JavaScriptRuleEvaluator.swift` |
 | URL 对象 | `utils/JsURL.kt`：提供 `host/origin/pathname/searchParams`；不是修改参数就重写地址的浏览器 URL 对象 | 同上 `java.toURL` |
 | 缓存 | `help/CacheManager.kt`：`saveTime` 单位秒，0 为不限时；有期限的持久条目不放入无期限内存缓存；`onlyDisk` 不走内存 | `Sources/LegadoCore/RuleEngine/JavaScriptRuleCache.swift` |
-| 源自定义变量 | `data/entities/BaseSource.kt:331`：`setVariable`/`putVariable` 保存整段字符串，null 删除；`:356`：无参 `getVariable` 读取，缺省为空字符串；存储与 `get(key)/put(key,value)` 独立 | `JavaScriptRuleEvaluator.installSource` 当前缺少这组接口；真实集合有大量引用 |
+| 源自定义变量 | `data/entities/BaseSource.kt:331`：`setVariable`/`putVariable` 保存整段字符串，null 删除；`:356`：无参 `getVariable` 读取，缺省为空字符串；存储与 `get(key)/put(key,value)` 独立 | `JavaScriptRuleEvaluator.installSource` 和 RSS 页面桥已补齐，验证状态见 M2 执行记录 |
 | HTTP JS | `help/JsExtensions.kt:575`：`get/head/post` 返回 Jsoup Response、不自动跟随重定向；页面 `help/webView/WebJsExtensions.kt:193` 接收 JSON Header 字符串，get/post 返回正文、head 返回 JSON 字符串 | 规则引擎及 `App/Features/RSS/RSSWebReaderView.swift`，两种上下文分别核对 |
 | 人工验证 | `help/JsExtensions.kt:399`：`startBrowser` 打开页面；`startBrowserAwait` 等待响应或重取；`getVerificationCode` 等待用户输入 | 当前仅有浏览器原生路由，尚无对应规则 API |
 | RSS 请求登录检查 | `model/rss/Rss.kt`：列表和正文请求完成后执行 `loginCheckJs`，失败响应也可进入检查，结果为响应对象 | `Sources/LegadoCore/RSS/RSSService.swift`；需要继续核对与网页登录检查的差别 |
@@ -63,7 +63,7 @@
 | P0-13 | 低频工具 API 缺失 | `t2s/s2t/htmlFormat/toNumChapter/getThemeConfig/getReadBookConfig/lock/singleFlight/tick/queryTTF/replaceFont` | 按真实调用建立样例；未支持项列明，字体解析和新依赖先给成本依据 |
 | P0-14 | 页面部分路由已有 | 补需要的 `java.open` 分支、方向锁定、关闭回调，与原生视频全屏协调 | 返回/关闭恢复页面状态和原方向；不绕过现有外部导航确认 |
 | P0-15 | 源字段尚有遗漏 | 核对 `nextContentUrl/enableReadRecord` 等导入、编辑、导出、持久化字段 | 不因导入成功就丢字段；分页随 P2-03 接通；历史字段行为先明确基准和产品设置 |
-| P0-16 | 源自定义变量 API 缺失，新集合确认高频 | 对齐 `source.getVariable()/setVariable()/putVariable()`，与已有键值 get/put 分开；核对页面侧使用范围 | 缺省、设置、null 清除、跨求值/重启、不同源隔离；动态分类与登录后重算使用相同变量；不简单别名到带参数的 get/put |
+| P0-16 | 规则与页面接口已补，核心通过、页面回归待验证 | 对齐 `source.getVariable()/setVariable()/putVariable()`，与已有键值 get/put 分开；核对页面侧使用范围 | 缺省、设置、null 清除、跨求值/重启、不同源隔离；动态分类与登录后重算使用相同变量；不简单别名到带参数的 get/put |
 
 `longToast`、`toURL`、常用 get/put/DOM、JavaImporter 白名单等保留已有实现，按矩阵扩展回归，不再安排重复开发。规则 `longToast` 当前只是诊断日志；文件缓存、任意 Java 类和全套 Cipher 仍不能宣称已兼容。
 
@@ -120,7 +120,7 @@
 
 所有功能任务的完成门槛：基准行为有依据、最小回归能触发问题、修复后的对应测试通过、App 受影响时完成构建、真实源/真机未测项明确记录。记录“未测/不支持/需人工操作”，不把它们统计成通过。
 
-本机为 Windows，无 Swift/Xcode。Swift 与 iOS 测试通过 macOS/GitHub Actions 获取；Windows 文档检查不能替代测试。当前 CI 会运行包测试及 RSS UI Scheme，**不会自动运行 `LegadoReaderTests` 中全部网页桥集成测试**。
+本机为 Windows，无 Swift/Xcode。Swift 与 iOS 测试通过 macOS/GitHub Actions 获取；Windows 文档检查不能替代测试。CI 已拆为 `build/test/ipa`：推送默认 `test`，执行包测试、RSS UI Scheme 和 `LegadoReaderTests/WebReaderBridgeTests`，不生成 IPA；手动 `build` 仅编译，手动 `ipa` 在回归通过后打包。其他 `LegadoReaderTests` 用例仍需按改动范围单独选择。
 
 ## 执行记录
 
@@ -128,7 +128,8 @@
 | --- | --- | --- |
 | M0 | 已完成文档 | 固定两个仓库的起点，建立任务与测试矩阵 |
 | M1 | 本批缓存回归通过 | 新增 5 项缓存回归及 1 项跨 JS 求值回归；旧实现 `a474da6` 在 [42211370651](https://github.com/DenisZheng/legado-ios/actions/runs/42211370651) 出现 3 项预期失败、4 个断言问题；修复后核心回归通过。范围为下文所列文本缓存期限行为，不包含负期限和文件缓存 |
-| M2～M6 | 未开始本轮实施 | 已有功能见快照表；不会将此前实现重复算为本轮交付 |
+| M2 | P0-16 已实施，核心通过、页面待验证 | 规则侧和页面侧共享源自定义变量，补空值/别名/隔离/持久化/动态分类回归；P0-02/03/04 尚未开始本轮实施 |
+| M3～M6 | 未开始本轮实施 | 已有功能见快照表；不会将此前实现重复算为本轮交付 |
 | P3-02 | 本地清单已建立 | `rssSources-valid (1).json`：307 条且无重复；固定文件指纹并生成 2456 条逐阶段记录；Android/iOS 实际执行仍未进行 |
 | P3-03/04 | 待执行 | 逐源记录当前全部为 `NOT_RUN`；不能以 JSON 结构有效或静态引用统计替代真实规则执行 |
 
@@ -148,7 +149,15 @@ M1 验证补充：`1555ea3` 的 [运行 42212284372](https://github.com/DenisZhe
 
 `4edf2b9` 的上述运行已完整通过：393 tests / 50 suites、4 项 UI 回归、Release Archive、未签名 IPA 打包及上传。书源多选、RSS 取消重开/文件导入、入口/默认页、搜索分页/正文刷新/收藏恢复均保留原有断言。CI 工具链为 Xcode 26.6（17F113），模拟器为 iPhone 17 Pro / iOS 26.2。固定 runtime 和改用 Files 本地夹具后的组合验证通过，不将其扩展为对 File Provider 内部根因的证明，也不代表 307 条实际源已执行。
 
-[IPA 产物](https://github.com/DenisZheng/legado-ios/actions/runs/42224416883/artifacts/13505788718) 为 0.1.14（20）、最低 iOS 15，下载后 SHA-256 和 ZIP 完整性校验通过。本地产物与校验记录位于 `artifacts/ci/run-42224416883-ipa/`，原始日志位于 `artifacts/ci/run-42224416883.log`。产物未签名，安装到真机需自行签名。此后的源清单脚本和文档提交不改变本次已验证的 App、核心包、UI 测试及工作流代码。
+[IPA 产物](https://github.com/DenisZheng/legado-ios/actions/runs/42224416883/artifacts/13505788718) 为 0.1.14（20）、最低 iOS 15，下载后 SHA-256 和 ZIP 完整性校验通过。本地产物与校验记录位于 `artifacts/ci/run-42224416883-ipa/`，原始日志位于 `artifacts/ci/run-42224416883.log`。产物未签名，安装到真机需自行签名。后续至 `f329cc3` 仅改变源清单脚本和文档；该 IPA 不包含下面的新变量接口。
+
+M2 / P0-16：`f7f5d3a` 为规则侧和 RSS 页面补齐 `source.getVariable/setVariable/putVariable`。`BookSourceRuntimeStore` 复用现有 `JavaScriptRuleCache`，使用 Android 的 `sourceVariable_<sourceID>` 命名空间；与 `source.get/put`、规则 `java.get/put` 分开，并可由同名 cache key 读取。空字符串保留，null 清除；页面写入同步完成后即可读回，规则和页面共用状态。保持非空 preload 和远程页面隔离要求。
+
+新增 3 项源变量核心回归和 1 项动态分类回归；网页测试验证页面→规则、规则→页面的读写、清除及桥接启用边界。持久化用新缓存实例读回独立 UserDefaults 存储验证，不能据此声称完成真机重启或 49 条引用源的实际运行。现有页面测试改走正式 `configureScripts` 路径，避免只手动注入脚本而没有启用原生桥。
+
+CI 模式改动为 `a18f87d`，本地 actionlint 通过；`f7f5d3a` 的 [build 运行](https://github.com/DenisZheng/legado-ios/actions/runs/42229925320) 已通过，job 耗时 6 分 2 秒，未执行测试或生成产物。[test 运行](https://github.com/DenisZheng/legado-ios/actions/runs/42229891543) 通过 397 tests / 50 suites；4 项 UI 中入口和搜索阅读通过，书源/RSS 文件导入失败，网页桥因此未执行。本轮不执行 IPA 打包。
+
+该失败复现 Files 文档 ID 无法解析和回传空数组，说明 `4edf2b9` 的宿主机复制方案仍不稳定。`773bd20` 移除直接写 Files 容器的脚本，改由独立夹具应用经系统导出保存后再测试导入；同时网页桥不再因文件 UI 失败而跳过，总体失败仍保留。对应 [42233746082](https://github.com/DenisZheng/legado-ios/actions/runs/42233746082) 待验证。换机步骤见 [Mac 接续说明](MAC_HANDOFF.md)。
 
 ## 平台资料
 

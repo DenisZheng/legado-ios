@@ -86,12 +86,21 @@ final class FixtureAppDelegate: UIResponder, UIApplicationDelegate, UIDocumentPi
         defer { if scoped { saved.stopAccessingSecurityScopedResource() } }
         do {
             let files = try FileManager.default.contentsOfDirectory(at: original, includingPropertiesForKeys: nil)
-            for file in files {
-                guard try Data(contentsOf: file) == Data(contentsOf: saved.appendingPathComponent(file.lastPathComponent)) else {
-                    throw NSError(domain: "SourceImportFixtures", code: 2,
-                                  userInfo: [NSLocalizedDescriptionKey: "存储后文件内容不一致：\(file.lastPathComponent)"])
+            var coordinationError: NSError?
+            var verification: Result<Void, Error>?
+            NSFileCoordinator().coordinate(readingItemAt: saved, options: [], error: &coordinationError) { directory in
+                verification = Result {
+                    for file in files {
+                        guard try Data(contentsOf: file) == Data(contentsOf: directory.appendingPathComponent(file.lastPathComponent)) else {
+                            throw NSError(domain: "SourceImportFixtures", code: 2,
+                                          userInfo: [NSLocalizedDescriptionKey: "存储后文件内容不一致：\(file.lastPathComponent)"])
+                        }
+                    }
                 }
             }
+            if let coordinationError { throw coordinationError }
+            guard let verification else { throw CocoaError(.fileReadUnknown) }
+            try verification.get()
             status.text = "夹具已存储并校验：\(files.count)"
         } catch {
             status.text = "夹具存储校验失败：\(error)"

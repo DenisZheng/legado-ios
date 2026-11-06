@@ -3,7 +3,6 @@
 ## 协作约定
 
 - 作为资深全栈工程师、软件架构师和对等技术协作者工作，默认使用简体中文。
-- 每次聊天回复以 `Model: <model identifier>` 开头；不编造无法确认的模型版本或更新日期。此要求不适用于代码、文档和行内编辑。
 - 先给判断和核心理由，再解释必要细节；不使用汇报腔、客服腔或重复性总结。
 - 优先级：安全性 = 正确性 > 最小改动 > 可读性 > 一致性。
 - 项目内规则冲突时：用户明确要求 > 本文件 > 局部项目约定 > 通用最佳实践。
@@ -111,12 +110,12 @@ RSS UI 回归使用 `LegadoRSSFlowUITests` Scheme，其中包含入口与默认�
 
 1. 在 macOS 启动测试模拟器。
 2. 在单独终端运行 `python3 scripts/fixtures/rss-flow-server.py`，服务地址为 `127.0.0.1:18763`。
-3. 运行 `sh scripts/prepare-source-import-fixture.sh <模拟器UUID>` 准备 Files 中的独立测试应用和样本。
+3. 运行 `sh scripts/prepare-source-import-fixture.sh <模拟器UUID>` 安装独立夹具应用；UI 用例会生成并存储样本。
 4. 运行 `xcodebuild -project Legado.xcodeproj -scheme LegadoRSSFlowUITests -destination 'platform=iOS Simulator,id=<模拟器UUID>' CODE_SIGNING_ALLOWED=NO test`。
 
-文件夹具应保持文件标识稳定；不要随意改为原子替换。Files 提供器与选择器行为的历史注意事项见 `docs/DEVELOPMENT.md`。
+文件导入 UI 用例会启动独立夹具应用，通过系统导出选择器将 7 个样本存到 Files，再走正式 App 的导入选择器。不要从宿主机直接写 Files 容器，也不要修改提供器数据库。Files 的历史失败与验证记录见 `docs/DEVELOPMENT.md`。
 
-- `.github/workflows/build-ios.yml` 在 macOS 上运行包测试、RSS UI 回归，再 Archive 和生成未签名 IPA。
+- `.github/workflows/build-ios.yml` 提供 `build/test/ipa`：手动默认仅编译；源码推送运行核心、RSS UI 与网页桥回归；仅手动 `ipa` 在回归通过后 Archive 和生成未签名 IPA。网页桥在 UI 失败后仍执行，整体失败状态保留。
 - `.github/workflows/rss-live-smoke.yml` 运行公开 feed 的网络检查。`scripts/check-public-rss-feeds.py` 只验证端点和 feed 数据，不能替代 Swift 规则执行及 iOS 使用链路。
 - `Tests/LegadoCoreTests/Fixtures/RealWorldRSS/` 中 XML 是合成样本，不是完整真实源集合；保持回归确定性，不依赖第三方网站作为唯一测试依据。
 - 功能和兼容修复优先补能触发真实问题的最小回归；文档和低风险文案修改无需机械添加测试。
@@ -136,4 +135,5 @@ RSS UI 回归使用 `LegadoRSSFlowUITests` Scheme，其中包含入口与默认�
 - 纯本地改动无需网络搜索；SDK/API/框架/CLI/云服务文档优先 Context7，其次官方来源。版本、公告、漏洞、价格和政策等时效信息必须实时核实，工具不可用时说明不确定性。
 - 使用临时数据库和合成响应测试，避免操作个人书架。公开夹具、日志和截图不得包含账号、Cookie、Token、私有源或完整付费正文。
 - 临时 CI 日志和诊断产物放在已忽略的 `artifacts/` 下，不把构建缓存、`.xcresult`、IPA 或签名文件加入提交。
+- 根目录 `rssSources-valid (1).json` 是用户提供的 307 源集合，已精确忽略，不上传。换 Mac 时单独复制；接续步骤与未完成项见 `docs/MAC_HANDOFF.md`。
 - 遵守 GPL v3，保留第三方版权与许可；相关信息见 `THIRD_PARTY_NOTICES.md`。
