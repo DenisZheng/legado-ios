@@ -1499,7 +1499,7 @@ public struct JavaScriptRuleEvaluator: Sendable {
               text: function () { return global.java.getString('@text', html); },
               ownText: function () { return global.java.getString('@ownText', html); },
               attr: function (name) {
-                var tag = (html.match(/^\s*<([a-zA-Z][\\w:-]*)/) || [])[1];
+                var tag = (html.match(/^\s*<([a-zA-Z][\w:-]*)/) || [])[1];
                 return tag ? global.java.getString(tag + '@' + NativeString(name), html) : '';
               },
               select: function (selector) { return makeElements(global.java.__getElements(NativeString(selector), html)); },
