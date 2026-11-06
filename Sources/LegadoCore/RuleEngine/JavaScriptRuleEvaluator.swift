@@ -509,8 +509,10 @@ public struct JavaScriptRuleEvaluator: Sendable {
             return html
         }
         let setBaseURLBlock: @convention(block) (Any?) -> String = { value in
-            let base = Self.stringify(value).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !base.isEmpty { activeContext.baseURL = base }
+            if let value, !(value is NSNull) {
+                let base = Self.stringify(value).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !base.isEmpty { activeContext.baseURL = base }
+            }
             return activeContext.baseURL
         }
         let md5Block: @convention(block) (String) -> String = { value in
