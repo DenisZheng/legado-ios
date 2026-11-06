@@ -32,11 +32,14 @@ struct RSSRegressionTests {
         }
     }
 
-    @Test func remoteRSSWebModeDoesNotReceivePrivilegedNativeBridge() {
-        #expect(RSSReadingMode.web(url: "https://article.example.test/").allowsNativeBridge == false)
-        #expect(RSSReadingMode.html(content: "<p>trusted parsed content</p>", baseURL: nil).allowsNativeBridge)
-        #expect(RSSReadingMode.startHTML(content: "<html></html>", baseURL: nil).allowsNativeBridge)
-        #expect(RSSReadingMode.video(url: "https://cdn.example.test/video.m3u8").allowsNativeBridge)
+    @Test func RSSWebViewBridgeRequiresPreloadAndNeverRunsOnRemotePages() {
+        var source = RssSource(sourceUrl: "https://feed.example.test/", sourceName: "测试源")
+        let article = RSSReadingMode.html(content: "<p>parsed article</p>", baseURL: source.sourceUrl)
+        #expect(!article.allowsNativeBridge(for: source))
+        source.preloadJs = "window.rssReady = true;"
+        #expect(article.allowsNativeBridge(for: source))
+        #expect(!RSSReadingMode.web(url: "https://article.example.test/").allowsNativeBridge(for: source))
+        #expect(!RSSReadingMode.startHTML(content: "<html></html>", baseURL: nil).allowsNativeBridge(for: RssSource(sourceUrl: source.sourceUrl, sourceName: source.sourceName)))
     }
 
     @Test func concurrentSourceTogglesDoNotOverwriteOneAnother() async throws {
