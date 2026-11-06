@@ -233,6 +233,7 @@ private struct RSSStandaloneReaderView: View {
     let source: RssSource
     let mode: RSSReadingMode
     @State private var route: RSSNativeRoute?
+    @State private var webMessage: String?
     var body: some View {
         RSSWebReaderView(mode: mode, source: source, onAction: handle)
             .navigationTitle(source.sourceName).navigationBarTitleDisplayMode(.inline)
@@ -248,6 +249,11 @@ private struct RSSStandaloneReaderView: View {
                 case .start(let mode): ReadingNavigationStack { RSSStandaloneReaderView(source: source, mode: mode) }
                 }
             }
+            .alert("提示", isPresented: Binding(get: { webMessage != nil }, set: { if !$0 { webMessage = nil } })) {
+                Button("好") { webMessage = nil }
+            } message: {
+                Text(webMessage ?? "")
+            }
     }
     private func handle(_ action: RSSWebAction) {
         switch action {
@@ -255,6 +261,9 @@ private struct RSSStandaloneReaderView: View {
         case .searchBook(let key, _): route = .search(key)
         case .addBook(let value): route = .addBook(value)
         case .download(let url, let fileName): route = .download(url: url, fileName: fileName)
+        case .openExternal(let value):
+            if let url = URL(string: value) { UIApplication.shared.open(url) }
+        case .message(let value): webMessage = value
         case .open(let name, let url, let title, _):
             switch name.lowercased() {
             case "login": route = .login
@@ -345,6 +354,7 @@ private struct RSSArticleDetailView: View {
     @State private var forceRefresh = false
     @StateObject private var speech = RSSSpeechController()
     @State private var nativeRoute: RSSNativeRoute?
+    @State private var webMessage: String?
 
     var body: some View {
         Group {
@@ -401,6 +411,11 @@ private struct RSSArticleDetailView: View {
             case .start(let value): ReadingNavigationStack { RSSStandaloneReaderView(source: source, mode: value) }
             }
         }
+        .alert("提示", isPresented: Binding(get: { webMessage != nil }, set: { if !$0 { webMessage = nil } })) {
+            Button("好") { webMessage = nil }
+        } message: {
+            Text(webMessage ?? "")
+        }
     }
 
     private func handleWebAction(_ action: RSSWebAction) {
@@ -408,6 +423,9 @@ private struct RSSArticleDetailView: View {
         case .showPhoto(let value): nativeRoute = .photo(value)
         case .searchBook(let key, _): nativeRoute = .search(key)
         case .addBook(let value): nativeRoute = .addBook(value)
+        case .openExternal(let value):
+            if let url = URL(string: value) { UIApplication.shared.open(url) }
+        case .message(let value): webMessage = value
         case .open(let name, let url, let title, _):
             switch name.lowercased() {
             case "search": if let key = title ?? url { nativeRoute = .search(key) }
