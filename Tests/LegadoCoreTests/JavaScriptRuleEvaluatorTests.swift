@@ -243,6 +243,23 @@ struct JavaScriptRuleEvaluatorTests {
         #expect(value.value.stringValue == "№1,№2|作者甲,作者乙,甲,乙|2|作者甲|第一章|/chapter/1")
     }
 
+    @Test func setContentReturnsChainableAnalyzerAndUpdatesBaseURLWithoutReplacingResultSnapshot() throws {
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: """
+                var analyzer = java.setContent(
+                  '<article><a href="/chapter/2">第二章</a></article>',
+                  'https://rss.example.test/book/'
+                );
+                analyzer.getString('a@text') + '|' +
+                  analyzer.getString('a@href', null, true) + '|' +
+                  (typeof analyzer.getElements === 'function');
+                """,
+            result: .string("<p>original result</p>"),
+            executionContext: .init(baseURL: "https://rss.example.test/original/")
+        )
+        #expect(value.value.stringValue == "第二章|https://rss.example.test/chapter/2|true")
+    }
+
     @Test func supportsJsoupConnectionHeadAndGet() throws {
         let evaluator = JavaScriptRuleEvaluator(networkLoader: JavaScriptAjaxAllMock())
         let value = try evaluator.evaluate(
