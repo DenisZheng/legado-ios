@@ -83,7 +83,7 @@ struct RSSWebReaderView: UIViewRepresentable {
             let controller = webView.configuration.userContentController
             controller.removeAllUserScripts()
             controller.removeScriptMessageHandler(forName: "legado")
-            bridgeEnabled = mode.allowsNativeBridge
+            bridgeEnabled = mode.allowsNativeBridge(for: source)
             guard bridgeEnabled else { return }
 
             controller.add(self, name: "legado")
