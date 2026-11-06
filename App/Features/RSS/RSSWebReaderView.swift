@@ -101,6 +101,11 @@ struct RSSWebReaderView: UIViewRepresentable {
                 if (result == null || result === '') return null;
                 try { return JSON.parse(result); } catch (_) { return result; }
               };
+              const evaluateJS = script => {
+                const result = window.prompt('__legado_js__', JSON.stringify({script:String(script)}));
+                if (result == null || result === '') return null;
+                try { return JSON.parse(result); } catch (_) { return result; }
+              };
               const analyzer = {
                 setContent(content, baseUrl) { if (content == null) throw new Error('内容不可空（Content cannot be null）'); ruleCall({op:'setContent', content, baseUrl:baseUrl == null ? null : String(baseUrl)}); return analyzer; },
                 setBaseUrl(baseUrl) { ruleCall({op:'setBaseUrl', baseUrl:baseUrl == null ? null : String(baseUrl)}); return analyzer; },
@@ -113,6 +118,35 @@ struct RSSWebReaderView: UIViewRepresentable {
               window.java = window.java || {};
               java.get = get; java.put = put;
               java.getSource = () => window.source; java.getTag = () => \(Self.jsString(source.sourceName));
+              java.ajax = (url, timeout) => evaluateJS('java.ajax(' + JSON.stringify(String(url)) + (timeout == null ? '' : ',' + Number(timeout)) + ')');
+              java.ajaxAll = (urls, timeout) => evaluateJS('java.ajaxAll(' + JSON.stringify(urls) + (timeout == null ? '' : ',' + Number(timeout)) + ')');
+              java.connect = (url, headers, timeout) => evaluateJS(
+                '(function(){var r=java.connect(' + JSON.stringify(String(url)) + ',' +
+                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) +
+                ');return {url:r.url,body:r.body,code:r.code,message:r.message,headers:r.headers,successful:r.successful,callTime:r.callTime};})()'
+              );
+              java.getResponse = (method, url, body, headers, timeout) => evaluateJS(
+                '(function(){var r=java.' + method + '(' + JSON.stringify(String(url)) + ',' +
+                (body == null ? 'null' : JSON.stringify(body)) + ',' + JSON.stringify(headers || {}) +
+                (timeout == null ? '' : ',' + Number(timeout)) +
+                ');return {url:r.url().toString(),body:r.body(),code:r.statusCode(),headers:r.headers()};})()'
+              );
+              java.get = (url, headers, timeout) => {
+                if (arguments.length === 1) return get(url);
+                return evaluateJS('(function(){var r=java.get(' + JSON.stringify(String(url)) + ',' +
+                  JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) +
+                  ');return {url:r.url().toString(),body:r.body(),code:r.statusCode(),headers:r.headers()};})()');
+              };
+              java.head = (url, headers, timeout) => evaluateJS(
+                '(function(){var r=java.head(' + JSON.stringify(String(url)) + ',' +
+                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) +
+                ');return {url:r.url().toString(),body:r.body(),code:r.statusCode(),headers:r.headers()};})()'
+              );
+              java.post = (url, body, headers, timeout) => evaluateJS(
+                '(function(){var r=java.post(' + JSON.stringify(String(url)) + ',' + JSON.stringify(body == null ? '' : body) + ',' +
+                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) +
+                ');return {url:r.url().toString(),body:r.body(),code:r.statusCode(),headers:r.headers()};})()'
+              );
               window.cache = {
                 put(key, value, saveTime) { nativeCall('__legado_cache__', {op:'put', key:String(key), value, saveTime:Number(saveTime) || 0}); },
                 get(key, onlyDisk) { return nativeCall('__legado_cache__', {op:'get', key:String(key), onlyDisk:!!onlyDisk}); },
@@ -254,11 +288,41 @@ struct RSSWebReaderView: UIViewRepresentable {
                 completionHandler(BookSourceRuntimeStore.shared.get(sourceID: source.sourceUrl, key: defaultText ?? ""))
             } else if prompt == "__legado_rule__" {
                 handleRulePrompt(defaultText, completionHandler: completionHandler)
+            } else if prompt == "__legado_js__" {
+                handleJavaScriptPrompt(defaultText, completionHandler: completionHandler)
             } else if prompt == "__legado_cache__" {
                 handleCachePrompt(defaultText, completionHandler: completionHandler)
             } else if prompt == "__legado_cookie__" {
                 handleCookiePrompt(defaultText, completionHandler: completionHandler)
             } else { completionHandler(defaultText) }
+        }
+
+        private func handleJavaScriptPrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
+            guard let payload, let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let script = object["script"] as? String, !script.isEmpty else {
+                completionHandler("null")
+                return
+            }
+            let context = RuleExecutionContext(
+                variables: analyzeVariables,
+                baseURL: analyzeRedirectURL ?? analyzeBaseURL,
+                source: source.bookSourceAdapter,
+                content: analyzeContent
+            )
+            Task {
+                do {
+                    let result = try await JavaScriptRuleEvaluator().evaluateAsync(
+                        script: script,
+                        result: analyzeContent,
+                        executionContext: context
+                    )
+                    self.analyzeVariables = result.variables
+                    completionHandler(Self.json(result.value.foundationObject))
+                } catch {
+                    completionHandler(Self.json(["error": error.localizedDescription]))
+                }
+            }
         }
 
         private func handleCachePrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
