@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>少数派</title>
+    <link>https://sspai.com/</link>
+    <description>数字产品与效率相关内容</description>
+    <item>
+      <title>公开测试条目 A</title>
+      <link>https://sspai.com/post/test-a</link>
+      <pubDate>Fri, 06 Nov 2026 08:00:00 +0800</pubDate>
+      <description><![CDATA[用于 RSS 解析回归测试的脱敏摘要。]]></description>
+    </item>
+    <item>
+      <title>公开测试条目 B</title>
+      <link>https://sspai.com/post/test-b</link>
+      <pubDate>Thu, 05 Nov 2026 08:00:00 +0800</pubDate>
+      <description><![CDATA[第二条合成内容，不包含真实文章正文。]]></description>
+    </item>
+  </channel>
+</rss>

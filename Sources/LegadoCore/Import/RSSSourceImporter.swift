@@ -13,12 +13,14 @@ public enum RSSSourceImportError: Error, LocalizedError, Sendable {
     case emptyDocument
     case wrongFormat
     case invalidSource
+    case notAFile
     case duplicate(String)
     public var errorDescription: String? {
         switch self {
         case .emptyDocument: "导入内容为空"
         case .wrongFormat: "RSS源格式错误"
         case .invalidSource: "不是订阅源"
+        case .notAFile: "请选择 RSS JSON 文件，而不是文件夹。"
         case .duplicate(let url): "RSS源已存在：\(url)"
         }
     }

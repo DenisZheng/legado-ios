@@ -7,6 +7,9 @@ enum RSSWebAction {
     case searchBook(key: String, scope: String?)
     case addBook(String)
     case open(name: String, url: String?, title: String?, origin: String?)
+    case openBrowser(String)
+    case openExternal(String)
+    case message(String)
     case download(url: String, fileName: String)
 }
 
@@ -31,16 +34,8 @@ struct RSSWebReaderView: UIViewRepresentable {
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.defaultWebpagePreferences.allowsContentJavaScript = source.enableJs
-        let controller = configuration.userContentController
-        controller.add(context.coordinator, name: "legado")
-        controller.addUserScript(.init(source: context.coordinator.bridgeScript, injectionTime: .atDocumentStart, forMainFrameOnly: false))
-        if let preload = source.preloadJs?.trimmedNonEmpty {
-            controller.addUserScript(.init(source: preload, injectionTime: .atDocumentStart, forMainFrameOnly: false))
-        }
-        if let inject = source.injectJs?.trimmedNonEmpty {
-            controller.addUserScript(.init(source: inject, injectionTime: .atDocumentEnd, forMainFrameOnly: false))
-        }
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        context.coordinator.configureScripts(for: mode, in: webView)
         webView.isOpaque = false
         webView.backgroundColor = UIColor(ReadingTheme.canvas)
         webView.scrollView.backgroundColor = UIColor(ReadingTheme.canvas)
@@ -54,6 +49,7 @@ struct RSSWebReaderView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.update(source: source)
+        context.coordinator.configureScripts(for: mode, in: webView)
         context.coordinator.onTextChange = onTextChange
         context.coordinator.onAction = onAction
         context.coordinator.loadIfChanged(mode: mode, in: webView)
@@ -72,6 +68,8 @@ struct RSSWebReaderView: UIViewRepresentable {
         var onAction: (RSSWebAction) -> Void
         private var signature = ""
         private var rulesInstalled = false
+        private var bridgeEnabled = false
+        private var trustedMainFrameOrigin: String?
         private let htmlProcessor = RSSHTMLProcessor()
         private var analyzeContent: JSONValue = .string("")
         private var analyzeBaseURL = ""
@@ -81,6 +79,35 @@ struct RSSWebReaderView: UIViewRepresentable {
         init(source: RssSource, onTextChange: @escaping (String) -> Void, onAction: @escaping (RSSWebAction) -> Void) { self.source = source; self.onTextChange = onTextChange; self.onAction = onAction }
         func update(source: RssSource) { self.source = source }
 
+        func configureScripts(for mode: RSSReadingMode, in webView: WKWebView) {
+            let controller = webView.configuration.userContentController
+            controller.removeAllUserScripts()
+            controller.removeScriptMessageHandler(forName: "legado")
+            bridgeEnabled = mode.allowsNativeBridge(for: source)
+            guard bridgeEnabled else { return }
+
+            controller.add(self, name: "legado")
+            controller.addUserScript(.init(
+                source: bridgeScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+            if let preload = source.preloadJs?.trimmedNonEmpty {
+                controller.addUserScript(.init(
+                    source: preload,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true
+                ))
+            }
+            if let inject = source.injectJs?.trimmedNonEmpty {
+                controller.addUserScript(.init(
+                    source: inject,
+                    injectionTime: .atDocumentEnd,
+                    forMainFrameOnly: true
+                ))
+            }
+        }
+
         var bridgeScript: String {
             let sourceJSON = (try? JSONEncoder().encode(source)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
             return """
@@ -88,8 +115,18 @@ struct RSSWebReaderView: UIViewRepresentable {
               const native = (action, payload) => window.webkit.messageHandlers.legado.postMessage(Object.assign({action}, payload || {}));
               const get = key => window.prompt('__legado_get__', String(key)) || '';
               const put = (key, value) => { value = String(value ?? ''); native('put', {key:String(key), value}); return value; };
+              const nativeCall = (name, payload) => {
+                const raw = window.prompt(name, JSON.stringify(payload || {}));
+                if (raw == null || raw === '') return null;
+                try { return JSON.parse(raw); } catch (_) { return raw; }
+              };
               const ruleCall = payload => {
                 const result = window.prompt('__legado_rule__', JSON.stringify(payload));
+                if (result == null || result === '') return null;
+                try { return JSON.parse(result); } catch (_) { return result; }
+              };
+              const evaluateJS = script => {
+                const result = window.prompt('__legado_js__', JSON.stringify({script:String(script)}));
                 if (result == null || result === '') return null;
                 try { return JSON.parse(result); } catch (_) { return result; }
               };
@@ -105,17 +142,79 @@ struct RSSWebReaderView: UIViewRepresentable {
               window.java = window.java || {};
               java.get = get; java.put = put;
               java.getSource = () => window.source; java.getTag = () => \(Self.jsString(source.sourceName));
+              java.ajax = (url, timeout) => evaluateJS(
+                'java.ajax(' + JSON.stringify(String(url)) + (timeout == null ? '' : ',' + Number(timeout)) + ')'
+              );
+              java.connect = (url, headers, timeout) => evaluateJS(
+                'JSON.stringify(java.connect(' + JSON.stringify(String(url)) + ',' +
+                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) + '))'
+              );
+              java.get = function (url, headers, timeout) {
+                if (arguments.length === 1) return get(url);
+                return evaluateJS(
+                  'java.get(' + JSON.stringify(String(url)) + ',' + JSON.stringify(headers || {}) +
+                  (timeout == null ? '' : ',' + Number(timeout)) + ').body()'
+                );
+              };
+              java.head = (url, headers, timeout) => evaluateJS(
+                'JSON.stringify(java.head(' + JSON.stringify(String(url)) + ',' +
+                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) + ').headers())'
+              );
+              java.post = (url, body, headers, timeout) => evaluateJS(
+                'java.post(' + JSON.stringify(String(url)) + ',' + JSON.stringify(body == null ? '' : body) + ',' +
+                JSON.stringify(headers || {}) + (timeout == null ? '' : ',' + Number(timeout)) + ').body()'
+              );
+              java.getCookie = (tag, key) => nativeCall('__legado_cookie__', {
+                op: key == null ? 'get' : 'getKey',
+                url: String(tag),
+                key: key == null ? null : String(key)
+              });
+              window.cache = {
+                put(key, value, saveTime) { nativeCall('__legado_cache__', {op:'put', key:String(key), value, saveTime:Number(saveTime) || 0}); },
+                get(key, onlyDisk) { return nativeCall('__legado_cache__', {op:'get', key:String(key), onlyDisk:!!onlyDisk}); },
+                putMemory(key, value) { nativeCall('__legado_cache__', {op:'putMemory', key:String(key), value}); },
+                getFromMemory(key) { return nativeCall('__legado_cache__', {op:'getFromMemory', key:String(key)}); },
+                deleteMemory(key) { nativeCall('__legado_cache__', {op:'deleteMemory', key:String(key)}); },
+                delete(key) { nativeCall('__legado_cache__', {op:'delete', key:String(key)}); },
+                putFile(key, value, saveTime) { nativeCall('__legado_cache__', {op:'putFile', key:String(key), value, saveTime:Number(saveTime) || 0}); },
+                getFile(key) { return nativeCall('__legado_cache__', {op:'getFile', key:String(key)}); }
+              };
+              window.cookie = {
+                getCookie(url) { return nativeCall('__legado_cookie__', {op:'get', url:String(url)}); },
+                getKey(url, key) { return nativeCall('__legado_cookie__', {op:'getKey', url:String(url), key:String(key)}); },
+                setCookie(url, value) { nativeCall('__legado_cookie__', {op:'set', url:String(url), value:String(value)}); },
+                removeCookie(url) { nativeCall('__legado_cookie__', {op:'remove', url:String(url)}); },
+                cookieToMap(header) {
+                  const map = {};
+                  String(header || '').split(';').forEach(part => {
+                    const index = part.indexOf('=');
+                    if (index > 0) map[part.slice(0, index).trim()] = part.slice(index + 1).trim();
+                  });
+                  return map;
+                },
+                mapToCookie(map) {
+                  return Object.keys(map || {}).map(key => key + '=' + map[key]).join('; ');
+                }
+              };
               java.showPhoto = src => native('showPhoto', {url:String(src)});
               java.addBook = url => native('addBook', {url:String(url)});
               java.searchBook = (key, scope) => native('searchBook', {key:String(key), scope:scope == null ? null : String(scope)});
               java.open = (name, url, title, origin) => native('open', {name:String(name), url:url == null ? null : String(url), title:title == null ? null : String(title), origin:origin == null ? null : String(origin)});
+              java.openUrl = (url, mimeType) => native('openExternal', {url:String(url), mimeType:mimeType == null ? null : String(mimeType)});
+              java.longToast = message => native('message', {message:String(message == null ? '' : message)});
+              java.toast = java.longToast;
               java.setContent = analyzer.setContent; java.setBaseUrl = analyzer.setBaseUrl; java.setRedirectUrl = analyzer.setRedirectUrl;
               java.getString = analyzer.getString; java.getStringList = analyzer.getStringList; java.getElement = analyzer.getElement; java.getElements = analyzer.getElements;
               window.source = Object.assign(\(sourceJSON), {
                 getKey: () => \(Self.jsString(source.sourceUrl)),
                 getTag: () => \(Self.jsString(source.sourceName)),
+                getVariable: () => nativeCall('__legado_source_variable__', {op:'get'}),
+                setVariable(value) {
+                  nativeCall('__legado_source_variable__', {op:'set', value:value == null ? null : String(value)});
+                },
                 get, put
               });
+              source.putVariable = source.setVariable;
               document.addEventListener('contextmenu', event => {
                 const image = event.target && event.target.closest ? event.target.closest('img') : null;
                 if (!image || !image.src) return;
@@ -147,6 +246,14 @@ struct RSSWebReaderView: UIViewRepresentable {
             guard signature != newSignature else { return }
             signature = newSignature
             switch mode {
+            case .html(_, let baseURL), .startHTML(_, let baseURL):
+                trustedMainFrameOrigin = Self.webOrigin(baseURL) ?? Self.webOrigin(source.sourceUrl)
+            case .image(let value), .video(let value):
+                trustedMainFrameOrigin = Self.webOrigin(value)
+            case .web:
+                trustedMainFrameOrigin = nil
+            }
+            switch mode {
             case .html(let content, let baseURL):
                 webView.loadHTMLString(htmlProcessor.contentHTML(content, style: source.style), baseURL: baseURL.flatMap(URL.init(string:)))
             case .startHTML(let content, let baseURL):
@@ -176,7 +283,9 @@ struct RSSWebReaderView: UIViewRepresentable {
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return }
+            guard bridgeEnabled, message.frameInfo.isMainFrame,
+                  let body = message.body as? [String: Any],
+                  let action = body["action"] as? String else { return }
             switch action {
             case "put":
                 if let key = body["key"] as? String { BookSourceRuntimeStore.shared.put(sourceID: source.sourceUrl, key: key, value: String(describing: body["value"] ?? "")) }
@@ -189,16 +298,158 @@ struct RSSWebReaderView: UIViewRepresentable {
             case "open":
                 let name = body["name"] as? String ?? ""
                 DispatchQueue.main.async { self.onAction(.open(name: name, url: body["url"] as? String, title: body["title"] as? String, origin: body["origin"] as? String)) }
+            case "openBrowser":
+                if let raw = body["url"] as? String,
+                   let url = URL(string: raw),
+                   ["http", "https", "legado", "yuedu"].contains(url.scheme?.lowercased() ?? "") {
+                    DispatchQueue.main.async { self.onAction(.openBrowser(raw)) }
+                }
+            case "openExternal":
+                if let raw = body["url"] as? String,
+                   let url = URL(string: raw),
+                   ["http", "https", "legado", "yuedu"].contains(url.scheme?.lowercased() ?? "") {
+                    DispatchQueue.main.async { self.onAction(.openExternal(raw)) }
+                }
+            case "message":
+                let message = String(describing: body["message"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !message.isEmpty {
+                    DispatchQueue.main.async { self.onAction(.message(message)) }
+                }
             default: break
             }
         }
 
         func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
+            guard bridgeEnabled, frame.isMainFrame else {
+                completionHandler(defaultText)
+                return
+            }
             if prompt == "__legado_get__" {
                 completionHandler(BookSourceRuntimeStore.shared.get(sourceID: source.sourceUrl, key: defaultText ?? ""))
+            } else if prompt == "__legado_source_variable__" {
+                handleSourceVariablePrompt(defaultText, completionHandler: completionHandler)
             } else if prompt == "__legado_rule__" {
                 handleRulePrompt(defaultText, completionHandler: completionHandler)
+            } else if prompt == "__legado_js__" {
+                handleJavaScriptPrompt(defaultText, completionHandler: completionHandler)
+            } else if prompt == "__legado_cache__" {
+                handleCachePrompt(defaultText, completionHandler: completionHandler)
+            } else if prompt == "__legado_cookie__" {
+                handleCookiePrompt(defaultText, completionHandler: completionHandler)
             } else { completionHandler(defaultText) }
+        }
+
+        private func handleSourceVariablePrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
+            guard let payload, let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                completionHandler(nil)
+                return
+            }
+            let store = BookSourceRuntimeStore.shared
+            switch object["op"] as? String {
+            case "get":
+                completionHandler(Self.json(store.getVariable(sourceID: source.sourceUrl)))
+            case "set" where object["value"] is String || object["value"] is NSNull:
+                store.setVariable(sourceID: source.sourceUrl, value: object["value"] as? String)
+                completionHandler("null")
+            default:
+                completionHandler(nil)
+            }
+        }
+
+        private func handleJavaScriptPrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
+            guard let payload, let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let script = object["script"] as? String, !script.isEmpty else {
+                completionHandler("null")
+                return
+            }
+            let context = RuleExecutionContext(
+                variables: analyzeVariables,
+                baseURL: analyzeRedirectURL ?? analyzeBaseURL,
+                source: source.bookSourceAdapter,
+                content: analyzeContent
+            )
+            Task {
+                do {
+                    let result = try await JavaScriptRuleEvaluator().evaluateAsync(
+                        script: script,
+                        result: analyzeContent,
+                        executionContext: context
+                    )
+                    self.analyzeVariables = result.variables
+                    completionHandler(Self.json(result.value.foundationObject))
+                } catch {
+                    completionHandler(Self.json(["error": error.localizedDescription]))
+                }
+            }
+        }
+
+        private func handleCachePrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
+            guard let payload, let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let operation = object["op"] as? String,
+                  let key = object["key"] as? String else {
+                completionHandler("null")
+                return
+            }
+            let value = object["value"].map { String(describing: $0) } ?? ""
+            let cache = JavaScriptRuleCache.shared
+            switch operation {
+            case "put":
+                cache.put(key, value: value, saveTime: max(0, object["saveTime"] as? Int ?? 0))
+                completionHandler("true")
+            case "get":
+                let result = cache.get(key, onlyDisk: object["onlyDisk"] as? Bool == true)
+                completionHandler(Self.json(result as Any? ?? NSNull()))
+            case "putMemory":
+                cache.putMemory(key, value: value)
+                completionHandler("true")
+            case "getFromMemory":
+                completionHandler(Self.json(cache.getFromMemory(key) as Any? ?? NSNull()))
+            case "deleteMemory":
+                cache.deleteMemory(key)
+                completionHandler("true")
+            case "delete":
+                cache.delete(key)
+                completionHandler("true")
+            case "putFile":
+                do {
+                    try cache.putFile(key, value: value, saveTime: max(0, object["saveTime"] as? Int ?? 0))
+                    completionHandler("true")
+                } catch {
+                    completionHandler(Self.json(["error": error.localizedDescription]))
+                }
+            case "getFile":
+                completionHandler(Self.json(cache.getFile(key) as Any? ?? NSNull()))
+            default:
+                completionHandler("null")
+            }
+        }
+
+        private func handleCookiePrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
+            guard let payload, let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let operation = object["op"] as? String,
+                  let url = object["url"] as? String else {
+                completionHandler("null")
+                return
+            }
+            let cookies = LegadoCookieStore.shared
+            switch operation {
+            case "get":
+                completionHandler(Self.json(cookies.cookieHeader(for: url)))
+            case "getKey":
+                completionHandler(Self.json(cookies.cookie(for: url, key: object["key"] as? String ?? "")))
+            case "set":
+                cookies.setCookie(object["value"] as? String ?? "", for: url)
+                completionHandler("true")
+            case "remove":
+                cookies.removeCookies(for: url)
+                completionHandler("true")
+            default:
+                completionHandler("null")
+            }
         }
 
         private func handleRulePrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
@@ -257,10 +508,41 @@ struct RSSWebReaderView: UIViewRepresentable {
             if !["http", "https", "file", "data", "about"].contains(scheme) {
                 UIApplication.shared.open(url); decisionHandler(.cancel); return
             }
+            if bridgeEnabled, navigationAction.targetFrame?.isMainFrame != false {
+                if scheme == "about", url.absoluteString == "about:blank" {
+                    decisionHandler(.allow)
+                    return
+                }
+                if ["http", "https"].contains(scheme),
+                   Self.webOrigin(url) != trustedMainFrameOrigin {
+                    decisionHandler(.cancel)
+                    DispatchQueue.main.async { self.onAction(.openBrowser(url.absoluteString)) }
+                    return
+                }
+                if !["http", "https"].contains(scheme) {
+                    // data:/file: documents can execute attacker-controlled script in the
+                    // main frame, so never let them inherit the privileged source bridge.
+                    decisionHandler(.cancel)
+                    return
+                }
+            }
             if navigationAction.navigationType == .linkActivated, shouldOverride(url.absoluteString) {
                 decisionHandler(.cancel); return
             }
             decisionHandler(.allow)
+        }
+
+        private static func webOrigin(_ rawValue: String?) -> String? {
+            guard let rawValue, let url = URL(string: rawValue) else { return nil }
+            return webOrigin(url)
+        }
+
+        private static func webOrigin(_ url: URL) -> String? {
+            guard let scheme = url.scheme?.lowercased(),
+                  ["http", "https"].contains(scheme),
+                  let host = url.host?.lowercased() else { return nil }
+            let port = url.port.map { ":\($0)" } ?? ""
+            return "\(scheme)://\(host)\(port)"
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {

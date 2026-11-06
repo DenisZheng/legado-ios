@@ -9,6 +9,8 @@ struct RSSHomeView: View {
     @State private var section = 0
     @State private var searchText = ""
     @State private var showsFiles = false
+    @State private var pickedImportFiles: [SourceImportFile] = []
+    @State private var importPickerHasDismissed = true
     @State private var showsTextImport = false
     @State private var showsExport = false
     @State private var confirmsClear = false
@@ -30,7 +32,7 @@ struct RSSHomeView: View {
                 Menu("RSS操作", systemImage: "ellipsis.circle") {
                     NavigationLink { RSSSourceEditorView() } label: { Label("新建RSS源", systemImage: "plus") }
                     NavigationLink { RuleSubscriptionView() } label: { Label("规则订阅", systemImage: "link") }
-                    Button("导入文件", systemImage: "doc.badge.plus") { showsFiles = true }
+                    Button("导入文件", systemImage: "doc.badge.plus", action: presentFileImporter)
                     Button("URL或粘贴JSON", systemImage: "link.badge.plus") { showsTextImport = true }
                     Button("导出全部RSS源", systemImage: "square.and.arrow.up") { showsExport = true }
                 }
@@ -41,11 +43,7 @@ struct RSSHomeView: View {
                 else if section == 2, !library.records.isEmpty { Button("清空记录", systemImage: "trash", role: .destructive) { confirmsClear = true } }
             }
         })
-        let importing = AnyView(actions.fileImporter(isPresented: $showsFiles, allowedContentTypes: [.json, .text], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { Task { await library.importFiles(urls) } }
-            if case .failure(let error) = result { library.errorMessage = error.localizedDescription }
-        })
-        let sheets = AnyView(importing
+        let sheets = AnyView(actions
             .sheet(isPresented: $showsTextImport) { RSSImportSheet() }
             .sheet(item: $editingStar) { value in
                 RSSStarEditSheet(star: value, save: { updated in
@@ -57,13 +55,43 @@ struct RSSHomeView: View {
         })
         let status = AnyView(exporting
             .overlay { if library.isWorking { ProgressView().controlSize(.large) } }
-            .alert("RSS操作失败", isPresented: Binding(get: { library.errorMessage != nil }, set: { if !$0 { library.errorMessage = nil } })) {
-            Button("好") { library.errorMessage = nil }
-        } message: { Text(library.errorMessage ?? "") })
-        return status.confirmationDialog(section == 1 ? "确定清空全部RSS收藏？" : "确定清空全部RSS阅读记录？", isPresented: $confirmsClear, titleVisibility: Visibility.visible) {
+            .alert(Text(library.errorMessage == nil ? "RSS导入完成" : "RSS操作失败"), isPresented: Binding(
+                get: { library.errorMessage != nil || library.successMessage != nil },
+                set: { if !$0 { library.errorMessage = nil; library.successMessage = nil } }
+            )) {
+                Button("好") { library.errorMessage = nil; library.successMessage = nil }
+            } message: { Text(library.errorMessage ?? library.successMessage ?? "") })
+        return status
+            .sheet(isPresented: $showsFiles, onDismiss: {
+                importPickerHasDismissed = true
+                importPickedFilesWhenReady()
+            }) {
+                SourceFileImportPicker { files in
+                    pickedImportFiles = files
+                    showsFiles = false
+                    importPickedFilesWhenReady()
+                } onCancel: {
+                    showsFiles = false
+                }
+            }
+            .confirmationDialog(section == 1 ? "确定清空全部RSS收藏？" : "确定清空全部RSS阅读记录？", isPresented: $confirmsClear, titleVisibility: Visibility.visible) {
             Button("清空", role: .destructive) { Task { if section == 1 { await library.clearStars() } else { await library.clearRecords() } } }
             Button("取消", role: .cancel) {}
         }
+    }
+
+    private func presentFileImporter() {
+        pickedImportFiles = []
+        importPickerHasDismissed = false
+        showsFiles = true
+    }
+
+    private func importPickedFilesWhenReady() {
+        // 与书源一致：副本 URL 回调和 sheet 关闭可能以任意顺序到达。
+        guard importPickerHasDismissed, !pickedImportFiles.isEmpty else { return }
+        let files = pickedImportFiles
+        pickedImportFiles = []
+        Task { await library.importPickedFiles(files) }
     }
 
     @ViewBuilder
@@ -222,6 +250,8 @@ private struct RSSStandaloneReaderView: View {
     let source: RssSource
     let mode: RSSReadingMode
     @State private var route: RSSNativeRoute?
+    @State private var webMessage: String?
+    @State private var pendingExternalURL: URL?
     var body: some View {
         RSSWebReaderView(mode: mode, source: source, onAction: handle)
             .navigationTitle(source.sourceName).navigationBarTitleDisplayMode(.inline)
@@ -237,13 +267,55 @@ private struct RSSStandaloneReaderView: View {
                 case .start(let mode): ReadingNavigationStack { RSSStandaloneReaderView(source: source, mode: mode) }
                 }
             }
+            .overlay(alignment: .top) {
+                if let webMessage {
+                    Text(webMessage)
+                        .font(.callout)
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(.regularMaterial, in: Capsule())
+                        .padding(.top, 12)
+                        .accessibilityIdentifier("rssJavaScriptToast")
+                }
+            }
+            .task(id: webMessage) {
+                guard webMessage != nil else { return }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if !Task.isCancelled { webMessage = nil }
+            }
+            .confirmationDialog("打开外部链接？", isPresented: Binding(
+                get: { pendingExternalURL != nil },
+                set: { if !$0 { pendingExternalURL = nil } }
+            ), titleVisibility: .visible) {
+                Button("打开") {
+                    if let url = pendingExternalURL { UIApplication.shared.open(url) }
+                    pendingExternalURL = nil
+                }
+                Button("取消", role: .cancel) { pendingExternalURL = nil }
+            } message: {
+                Text(pendingExternalURL?.absoluteString ?? "")
+            }
     }
+    private static func validatedExternalURL(_ rawValue: String) -> URL? {
+        guard rawValue.utf8.count < 65_536,
+              let url = URL(string: rawValue),
+              ["http", "https", "legado", "yuedu"].contains(url.scheme?.lowercased() ?? "") else {
+            return nil
+        }
+        return url
+    }
+
     private func handle(_ action: RSSWebAction) {
         switch action {
         case .showPhoto(let value): route = .photo(value)
         case .searchBook(let key, _): route = .search(key)
         case .addBook(let value): route = .addBook(value)
         case .download(let url, let fileName): route = .download(url: url, fileName: fileName)
+        case .openBrowser(let value): route = .start(.web(url: value))
+        case .openExternal(let value):
+            pendingExternalURL = Self.validatedExternalURL(value)
+        case .message(let value): webMessage = value
         case .open(let name, let url, let title, _):
             switch name.lowercased() {
             case "login": route = .login
@@ -254,7 +326,7 @@ private struct RSSStandaloneReaderView: View {
                 else if source.singleUrl { route = .start(.web(url: source.sourceUrl)) }
                 else if let mode = try? RSSStartPageResolver().resolve(source) { route = .start(mode) }
                 else { route = .sort(source) }
-            default: if let url, let target = URL(string: url) { UIApplication.shared.open(target) }
+            default: if let url { pendingExternalURL = Self.validatedExternalURL(url) }
             }
         }
     }
@@ -334,6 +406,8 @@ private struct RSSArticleDetailView: View {
     @State private var forceRefresh = false
     @StateObject private var speech = RSSSpeechController()
     @State private var nativeRoute: RSSNativeRoute?
+    @State private var webMessage: String?
+    @State private var pendingExternalURL: URL?
 
     var body: some View {
         Group {
@@ -390,6 +464,44 @@ private struct RSSArticleDetailView: View {
             case .start(let value): ReadingNavigationStack { RSSStandaloneReaderView(source: source, mode: value) }
             }
         }
+        .overlay(alignment: .top) {
+            if let webMessage {
+                Text(webMessage)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 12)
+                    .accessibilityIdentifier("rssJavaScriptToast")
+            }
+        }
+        .task(id: webMessage) {
+            guard webMessage != nil else { return }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if !Task.isCancelled { webMessage = nil }
+        }
+        .confirmationDialog("打开外部链接？", isPresented: Binding(
+            get: { pendingExternalURL != nil },
+            set: { if !$0 { pendingExternalURL = nil } }
+        ), titleVisibility: .visible) {
+            Button("打开") {
+                if let url = pendingExternalURL { UIApplication.shared.open(url) }
+                pendingExternalURL = nil
+            }
+            Button("取消", role: .cancel) { pendingExternalURL = nil }
+        } message: {
+            Text(pendingExternalURL?.absoluteString ?? "")
+        }
+    }
+
+    private static func validatedExternalURL(_ rawValue: String) -> URL? {
+        guard rawValue.utf8.count < 65_536,
+              let url = URL(string: rawValue),
+              ["http", "https", "legado", "yuedu"].contains(url.scheme?.lowercased() ?? "") else {
+            return nil
+        }
+        return url
     }
 
     private func handleWebAction(_ action: RSSWebAction) {
@@ -397,6 +509,10 @@ private struct RSSArticleDetailView: View {
         case .showPhoto(let value): nativeRoute = .photo(value)
         case .searchBook(let key, _): nativeRoute = .search(key)
         case .addBook(let value): nativeRoute = .addBook(value)
+        case .openBrowser(let value): nativeRoute = .start(.web(url: value))
+        case .openExternal(let value):
+            pendingExternalURL = Self.validatedExternalURL(value)
+        case .message(let value): webMessage = value
         case .open(let name, let url, let title, _):
             switch name.lowercased() {
             case "search": if let key = title ?? url { nativeRoute = .search(key) }
@@ -413,7 +529,7 @@ private struct RSSArticleDetailView: View {
                 else if source.singleUrl { nativeRoute = .start(.web(url: source.sourceUrl)) }
                 else if let mode = try? RSSStartPageResolver().resolve(source) { nativeRoute = .start(mode) }
                 else { nativeRoute = .sort(source) }
-            default: if let url, let target = URL(string: url) { UIApplication.shared.open(target) }
+            default: if let url { pendingExternalURL = Self.validatedExternalURL(url) }
             }
         case .download(let url, let fileName): nativeRoute = .download(url: url, fileName: fileName)
         }

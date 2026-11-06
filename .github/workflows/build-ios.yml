@@ -1,0 +1,210 @@
+name: iOS Build and Test
+run-name: iOS ${{ inputs.mode || 'test' }} · ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "build：仅编译；test：核心与 RSS 回归；ipa：回归后打包"
+        required: true
+        default: build
+        type: choice
+        options:
+          - build
+          - test
+          - ipa
+  push:
+    paths:
+      - "App/**"
+      - "Sources/**"
+      - "Tests/**"
+      - "scripts/fixtures/**"
+      - "scripts/prepare-source-import-fixture.sh"
+      - "Legado.xcodeproj/**"
+      - "Package.swift"
+      - "Package.resolved"
+      - ".github/workflows/build-ios.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-${{ github.ref }}-${{ inputs.mode || 'test' }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Validate build mode
+        env:
+          BUILD_MODE: ${{ inputs.mode || 'test' }}
+        run: |
+          case "$BUILD_MODE" in
+            build|test|ipa) echo "Mode: $BUILD_MODE" ;;
+            *) echo "Unsupported build mode: $BUILD_MODE" >&2; exit 2 ;;
+          esac
+
+      - name: Resolve Xcode dependencies
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Legado.xcodeproj \
+            -scheme Legado
+
+      - name: Run core tests
+        if: inputs.mode != 'build'
+        run: swift test --disable-sandbox
+
+      - name: Build iOS app without packaging
+        if: inputs.mode == 'build'
+        run: |
+          xcodebuild \
+            -project Legado.xcodeproj \
+            -scheme Legado \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Run RSS UI regression tests
+        id: rss-tests
+        if: inputs.mode != 'build'
+        run: |
+          python3 scripts/fixtures/rss-flow-server.py > "$RUNNER_TEMP/rss-fixture.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:18763/source.json > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18763/source.json > /dev/null
+
+          # 固定系统和机型，避免镜像设备列表顺序改变导致跨 runtime 比较。
+          DEVICE_ID="$(python3 - <<'PY'
+          import json
+          import subprocess
+
+          devices = json.loads(subprocess.check_output(
+              ["xcrun", "simctl", "list", "devices", "available", "--json"]
+          ))["devices"]
+          runtime = "com.apple.CoreSimulator.SimRuntime.iOS-26-2"
+          device_type = "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro"
+          if not any(device.get("isAvailable") and device["deviceTypeIdentifier"] == device_type
+                     for device in devices.get(runtime, [])):
+              raise SystemExit("Required iPhone 17 Pro / iOS 26.2 simulator is unavailable")
+          subprocess.run(
+              ["xcrun", "simctl", "create", "Legado RSS CI", device_type, runtime],
+              check=True
+          )
+          PY
+          )"
+          test -n "$DEVICE_ID"
+          printf '%s\n' "$DEVICE_ID" > "$RUNNER_TEMP/rss-test-device.txt"
+          xcrun simctl boot "$DEVICE_ID"
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          sh scripts/prepare-source-import-fixture.sh "$DEVICE_ID"
+
+          xcodebuild \
+            -project Legado.xcodeproj \
+            -scheme LegadoRSSFlowUITests \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -parallel-testing-enabled NO \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/RSSFlow.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
+      - name: Run RSS WebView bridge tests
+        if: ${{ !cancelled() && inputs.mode != 'build' && steps.rss-tests.outcome != 'skipped' }}
+        run: |
+          DEVICE_ID="$(cat "$RUNNER_TEMP/rss-test-device.txt")"
+          xcodebuild \
+            -project Legado.xcodeproj \
+            -scheme LegadoReaderTests \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -only-testing:LegadoReaderTests/WebReaderBridgeTests \
+            -parallel-testing-enabled NO \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/RSSBridge.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
+      - name: Collect RSS UI failure diagnostics
+        if: failure() && steps.rss-tests.outcome != 'skipped'
+        run: |
+          xcrun simctl list devices booted --json > "$RUNNER_TEMP/rss-simulators.json"
+          python3 -c 'import json,sys; print("\n".join(d["udid"] for devices in json.load(sys.stdin)["devices"].values() for d in devices))' \
+            < "$RUNNER_TEMP/rss-simulators.json" > "$RUNNER_TEMP/rss-simulator-ids.txt"
+          while IFS= read -r device; do
+            test -n "$device" || continue
+            if ! xcrun simctl spawn "$device" log show --last 20m --style compact --info --debug \
+              --predicate 'process == "fileproviderd" OR process == "Legado" OR process == "SourceImportFixtures" OR subsystem BEGINSWITH "com.apple.FileProvider"' \
+              > "$RUNNER_TEMP/rss-simulator-$device.log" 2>&1; then
+              echo "Unable to collect simulator logs for $device; see diagnostic output."
+            fi
+          done < "$RUNNER_TEMP/rss-simulator-ids.txt"
+
+      - name: Upload RSS UI failure diagnostics
+        if: failure() && steps.rss-tests.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rss-ui-failure-diagnostics
+          path: |
+            ${{ runner.temp }}/RSSFlow.xcresult
+            ${{ runner.temp }}/RSSBridge.xcresult
+            ${{ runner.temp }}/rss-fixture.log
+            ${{ runner.temp }}/rss-simulators.json
+            ${{ runner.temp }}/rss-simulator-*.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Archive unsigned iOS app
+        if: inputs.mode == 'ipa'
+        run: |
+          xcodebuild \
+            -project Legado.xcodeproj \
+            -scheme Legado \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Legado.xcarchive" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+
+      - name: Package unsigned IPA
+        if: inputs.mode == 'ipa'
+        run: |
+          APP_PATH="$RUNNER_TEMP/Legado.xcarchive/Products/Applications/Legado.app"
+          test -d "$APP_PATH"
+
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          ditto "$APP_PATH" "$RUNNER_TEMP/ipa/Payload/Legado.app"
+
+          cd "$RUNNER_TEMP/ipa"
+          /usr/bin/zip -qry -y "$RUNNER_TEMP/Legado-unsigned.ipa" Payload
+          shasum -a 256 "$RUNNER_TEMP/Legado-unsigned.ipa" > "$RUNNER_TEMP/Legado-unsigned.ipa.sha256"
+
+      - name: Upload IPA artifact
+        if: inputs.mode == 'ipa'
+        uses: actions/upload-artifact@v4
+        with:
+          name: legado-ios-unsigned-ipa
+          path: |
+            ${{ runner.temp }}/Legado-unsigned.ipa
+            ${{ runner.temp }}/Legado-unsigned.ipa.sha256
+          if-no-files-found: error
+          retention-days: 14

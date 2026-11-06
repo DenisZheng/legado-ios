@@ -474,14 +474,46 @@ public struct JavaScriptRuleEvaluator: Sendable {
             }
             return title
         }
+        var activeContent = executionContext.content ?? result
+        var activeContext = executionContext
         let getStringBlock: @convention(block) (String, Any?, Bool) -> String = { rule, content, isURL in
-            let input = content.map(JSONValue.bridge) ?? executionContext.content ?? result
+            let input = (content == nil || content is NSNull) ? activeContent : JSONValue.bridge(content)
             return (try? self.evaluateStringRule(
                 rule,
                 content: input,
                 isURL: isURL,
-                executionContext: executionContext
+                executionContext: activeContext
             )) ?? ""
+        }
+        let getStringListBlock: @convention(block) (String, Any?, Bool) -> [String] = { rule, content, isURL in
+            let input = (content == nil || content is NSNull) ? activeContent : JSONValue.bridge(content)
+            return (try? self.evaluateStringRuleList(
+                rule,
+                content: input,
+                isURL: isURL,
+                executionContext: activeContext
+            )) ?? []
+        }
+        let getElementsBlock: @convention(block) (String, Any?) -> [String] = { rule, content in
+            let html = (content == nil || content is NSNull) ? activeContent.stringValue : Self.stringify(content)
+            return (try? self.evaluateElementRule(rule, html: html, executionContext: activeContext)) ?? []
+        }
+        let setContentBlock: @convention(block) (Any?, Any?) -> String = { value, baseValue in
+            let html = Self.stringify(value)
+            activeContent = .string(html)
+            activeContext.content = activeContent
+            if let baseValue, !(baseValue is NSNull) {
+                let base = Self.stringify(baseValue).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !base.isEmpty { activeContext.baseURL = base }
+            }
+            return html
+        }
+        let setBaseURLBlock: @convention(block) (Any?) -> String = { value in
+            if let value, !(value is NSNull) {
+                let base = Self.stringify(value).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !base.isEmpty { activeContext.baseURL = base }
+            }
+            return activeContext.baseURL
         }
         let md5Block: @convention(block) (String) -> String = { value in
             Insecure.MD5.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -555,6 +587,66 @@ public struct JavaScriptRuleEvaluator: Sendable {
         }
         let setCookie: @convention(block) (String, String) -> Void = {
             LegadoCookieStore.shared.setCookie($1, for: $0)
+        }
+        let cachePut: @convention(block) (String, Any?, Int) -> Void = { key, value, saveTime in
+            JavaScriptRuleCache.shared.put(key, value: Self.stringify(value), saveTime: saveTime)
+        }
+        let cacheGet: @convention(block) (String, Bool) -> String? = { key, onlyDisk in
+            JavaScriptRuleCache.shared.get(key, onlyDisk: onlyDisk)
+        }
+        let cachePutMemory: @convention(block) (String, Any?) -> Void = { key, value in
+            JavaScriptRuleCache.shared.putMemory(key, value: Self.stringify(value))
+        }
+        let cacheGetMemory: @convention(block) (String) -> String? = { key in
+            JavaScriptRuleCache.shared.getFromMemory(key)
+        }
+        let cacheDeleteMemory: @convention(block) (String) -> Void = { key in
+            JavaScriptRuleCache.shared.deleteMemory(key)
+        }
+        let cacheDelete: @convention(block) (String) -> Void = { key in
+            JavaScriptRuleCache.shared.delete(key)
+        }
+        let cachePutFile: @convention(block) (String, Any?, Int) -> Void = { key, value, saveTime in
+            do {
+                try JavaScriptRuleCache.shared.putFile(key, value: Self.stringify(value), saveTime: saveTime)
+            } catch {
+                DiagnosticLog.shared.record(category: "JS cache", message: error.localizedDescription)
+            }
+        }
+        let cacheGetFile: @convention(block) (String) -> String? = { key in
+            JavaScriptRuleCache.shared.getFile(key)
+        }
+        let toURL: @convention(block) (String, String) -> [String: Any] = { rawURL, rawBaseURL in
+            // Android JsURL only resolves relative input when its explicit second
+            // argument is non-empty; it does not fall back to the current rule URL.
+            let baseURL = rawBaseURL.isEmpty ? nil : URL(string: rawBaseURL)
+            let parsedURL = URL(string: rawURL, relativeTo: baseURL)?.absoluteURL
+                ?? rawURL.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed)
+                    .flatMap { URL(string: $0, relativeTo: baseURL)?.absoluteURL }
+            guard let url = parsedURL,
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
+                  let host = components.host else {
+                return ["error": "Invalid URL: " + rawURL]
+            }
+            var params: [String: String] = [:]
+            if let query = components.percentEncodedQuery {
+                for part in query.split(separator: "&", omittingEmptySubsequences: false) {
+                    let pair = part.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                    guard pair.count == 2 else { continue }
+                    let key = String(pair[0])
+                    let encodedValue = String(pair[1]).replacingOccurrences(of: "+", with: "%20")
+                    params[key] = encodedValue.removingPercentEncoding ?? String(pair[1])
+                }
+            }
+            let origin = components.port.map { "\(components.scheme ?? "")://\(host):\($0)" }
+                ?? "\(components.scheme ?? "")://\(host)"
+            return [
+                "host": host,
+                "origin": origin,
+                "pathname": components.percentEncodedPath,
+                "href": url.absoluteString,
+                "searchParams": components.percentEncodedQuery == nil ? NSNull() : params as Any
+            ]
         }
         let ajax: @convention(block) (Any?, Any?) -> String = { value, timeoutValue in
             let rawURL = Self.firstURL(value)
@@ -656,6 +748,10 @@ public struct JavaScriptRuleEvaluator: Sendable {
         java?.setObject(putBlock, forKeyedSubscript: "put" as NSString)
         java?.setObject(putVolumeBlock, forKeyedSubscript: "putVolume" as NSString)
         java?.setObject(getStringBlock, forKeyedSubscript: "__getString" as NSString)
+        java?.setObject(getStringListBlock, forKeyedSubscript: "__getStringList" as NSString)
+        java?.setObject(getElementsBlock, forKeyedSubscript: "__getElements" as NSString)
+        java?.setObject(setContentBlock, forKeyedSubscript: "__setContent" as NSString)
+        java?.setObject(setBaseURLBlock, forKeyedSubscript: "__setBaseURL" as NSString)
         java?.setObject(md5Block, forKeyedSubscript: "md5Encode" as NSString)
         java?.setObject(base64Encode, forKeyedSubscript: "base64Encode" as NSString)
         java?.setObject(base64Decode, forKeyedSubscript: "base64Decode" as NSString)
@@ -677,6 +773,15 @@ public struct JavaScriptRuleEvaluator: Sendable {
         java?.setObject(getCookieHeader, forKeyedSubscript: "getCookieHeader" as NSString)
         java?.setObject(getCookieValue, forKeyedSubscript: "__getCookieValue" as NSString)
         java?.setObject(setCookie, forKeyedSubscript: "setCookie" as NSString)
+        java?.setObject(cachePut, forKeyedSubscript: "__cachePut" as NSString)
+        java?.setObject(cacheGet, forKeyedSubscript: "__cacheGet" as NSString)
+        java?.setObject(cachePutMemory, forKeyedSubscript: "__cachePutMemory" as NSString)
+        java?.setObject(cacheGetMemory, forKeyedSubscript: "__cacheGetMemory" as NSString)
+        java?.setObject(cacheDeleteMemory, forKeyedSubscript: "__cacheDeleteMemory" as NSString)
+        java?.setObject(cacheDelete, forKeyedSubscript: "__cacheDelete" as NSString)
+        java?.setObject(cachePutFile, forKeyedSubscript: "__cachePutFile" as NSString)
+        java?.setObject(cacheGetFile, forKeyedSubscript: "__cacheGetFile" as NSString)
+        java?.setObject(toURL, forKeyedSubscript: "__toURL" as NSString)
         java?.setObject(ajax, forKeyedSubscript: "ajax" as NSString)
         java?.setObject(ajaxAll, forKeyedSubscript: "ajaxAll" as NSString)
         java?.setObject(connect, forKeyedSubscript: "connect" as NSString)
@@ -708,13 +813,97 @@ public struct JavaScriptRuleEvaluator: Sendable {
                 }
                 return responseOf(java.__directRequest('GET', target, null, headers || {}, timeout));
               };
+              function htmlValue(value) {
+                if (value && typeof value.outerHtml === 'function') return value.outerHtml();
+                if (value && typeof value.html === 'function') return value.html();
+                return value;
+              }
               java.getString = function (rule, content, isUrl) {
+                var input = arguments.length < 2 || content == null ? null : htmlValue(content);
                 return java.__getString(
                   String(rule == null ? '' : rule),
-                  arguments.length < 2 || content == null ? src : content,
+                  input,
                   Boolean(isUrl)
                 );
               };
+              java.getStringList = function (rule, content, isUrl) {
+                var input = arguments.length < 2 || content == null ? null : htmlValue(content);
+                return java.__getStringList(
+                  String(rule == null ? '' : rule),
+                  input,
+                  Boolean(isUrl)
+                );
+              };
+              function makeElement(html) {
+                return {
+                  html: function () { return html; },
+                  outerHtml: function () { return html; },
+                  text: function () { return java.getString('@text', html); },
+                  ownText: function () { return java.getString('@ownText', html); },
+                  attr: function (name) {
+                    var tag = (html.match(/^\\s*<([a-zA-Z][\\w:-]*)/) || [])[1];
+                    return tag ? java.getString(tag + '@' + String(name), html) : '';
+                  },
+                  select: function (selector) { return makeElements(java.__getElements(String(selector), html)); },
+                  getElementsByClass: function (names) {
+                    return this.select('.' + String(names).trim().split(/\\s+/).join('.'));
+                  },
+                  toString: function () { return html; }
+                };
+              }
+              function makeElements(values) {
+                var items = (values || []).map(makeElement);
+                items.first = function () { return items.length ? items[0] : null; };
+                items.last = function () { return items.length ? items[items.length - 1] : null; };
+                items.get = function (index) { return items[index] || null; };
+                items.size = function () { return items.length; };
+                items.select = function (selector) {
+                  var selected = [];
+                  items.forEach(function (item) {
+                    selected = selected.concat(java.__getElements(String(selector), item.outerHtml()));
+                  });
+                  return makeElements(selected);
+                };
+                items.getElementsByClass = function (names) {
+                  return this.select('.' + String(names).trim().split(/\\s+/).join('.'));
+                };
+                items.text = function () {
+                  return items.map(function (item) { return item.text(); }).filter(Boolean).join(' ');
+                };
+                items.html = function () {
+                  return items.map(function (item) { return item.html(); }).join('');
+                };
+                items.attr = function (name) {
+                  return items.length ? items[0].attr(name) : '';
+                };
+                items.toString = function () {
+                  return items.map(function (item) { return item.outerHtml(); }).join('');
+                };
+                return items;
+              }
+              java.getElements = function (rule, content) {
+                var input = arguments.length < 2 || content == null ? null : htmlValue(content);
+                return makeElements(java.__getElements(String(rule), input));
+              };
+              java.getElement = java.getElements;
+              var analyzer = {
+                setContent: function (content, baseUrl) {
+                  if (content == null) throw new Error('内容不可空（Content cannot be null）');
+                  var html = htmlValue(content);
+                  java.__setContent(html, baseUrl == null ? null : String(baseUrl));
+                  return analyzer;
+                },
+                setBaseUrl: function (baseUrl) {
+                  java.__setBaseURL(baseUrl == null ? null : String(baseUrl));
+                  return analyzer;
+                },
+                getString: function (rule, content, isUrl) { return java.getString(rule, content, isUrl); },
+                getStringList: function (rule, content, isUrl) { return java.getStringList(rule, content, isUrl); },
+                getElement: function (rule, content) { return java.getElement(rule, content); },
+                getElements: function (rule, content) { return java.getElements(rule, content); }
+              };
+              java.setContent = analyzer.setContent;
+              java.setBaseUrl = analyzer.setBaseUrl;
               java.head = function (url, headers, timeout) {
                 return responseOf(java.__directRequest('HEAD', String(url), null, headers || {}, timeout));
               };
@@ -727,7 +916,80 @@ public struct JavaScriptRuleEvaluator: Sendable {
                   : java.__getCookieValue(String(tag), String(key));
               };
               java.getSource = function () { return typeof source === 'undefined' ? null : source; };
+              var cache = {
+                put: function (key, value, saveTime) {
+                  java.__cachePut(String(key), value, Math.max(0, Number(saveTime) || 0));
+                },
+                get: function (key, onlyDisk) {
+                  var value = java.__cacheGet(String(key), Boolean(onlyDisk));
+                  return value == null ? null : value;
+                },
+                putMemory: function (key, value) {
+                  java.__cachePutMemory(String(key), value);
+                },
+                getFromMemory: function (key) {
+                  var value = java.__cacheGetMemory(String(key));
+                  return value == null ? null : value;
+                },
+                deleteMemory: function (key) {
+                  java.__cacheDeleteMemory(String(key));
+                },
+                delete: function (key) {
+                  java.__cacheDelete(String(key));
+                },
+                putFile: function (key, value, saveTime) {
+                  java.__cachePutFile(String(key), value, Math.max(0, Number(saveTime) || 0));
+                },
+                getFile: function (key) {
+                  var value = java.__cacheGetFile(String(key));
+                  return value == null ? null : value;
+                }
+              };
+              globalThis.cache = cache;
               java.getWebViewUA = function () { return '\(LegadoURLBuilder.defaultUserAgent)'; };
+              // Android exposes longToast separately from toast. The rule engine has no
+              // foreground UI, so both are routed to the existing diagnostic logger.
+              java.longToast = java.toast;
+              java.toURL = function (rawURL, rawBaseURL) {
+                var raw = java.__toURL(String(rawURL), rawBaseURL == null ? '' : String(rawBaseURL));
+                if (raw.error) throw new Error(raw.error);
+                raw.toString = function () { return raw.href; };
+                return raw;
+              };
+              java.createSymmetricCrypto = function (transformation, key, iv) {
+                var parts = String(transformation || '').toUpperCase().split('/');
+                if (parts.length !== 3 || parts[0] !== 'AES' || parts[1] !== 'CBC' ||
+                    (parts[2] !== 'PKCS5PADDING' && parts[2] !== 'PKCS7PADDING')) {
+                  throw new Error('Unsupported iOS symmetric transformation: ' + transformation +
+                    ' (supported: AES/CBC/PKCS5Padding and AES/CBC/PKCS7Padding)');
+                }
+                var keyBytes = typeof key === 'string' ? java.strToBytes(key) : key;
+                var ivBytes = typeof iv === 'string' ? java.strToBytes(iv) : iv;
+                if (!keyBytes || !ivBytes) throw new Error('AES/CBC requires key and IV bytes');
+                function inputBytes(data, decrypting) {
+                  if (Array.isArray(data)) return data;
+                  if (typeof data !== 'string') throw new Error('Crypto data must be a string or byte array');
+                  if (!decrypting) return java.strToBytes(data);
+                  if (/^(0x)?[0-9a-f]+$/i.test(data) && data.replace(/^0x/i, '').length % 2 === 0) {
+                    return java.hexDecodeToByteArray(data.replace(/^0x/i, ''));
+                  }
+                  return java.base64DecodeToByteArray(data);
+                }
+                function crypt(operation, data) {
+                  var output = __legadoAESCBC(operation, keyBytes, ivBytes, inputBytes(data, operation === 2));
+                  if (output == null) throw new Error('AES/CBC operation failed; check key, IV, padding and data encoding');
+                  return output;
+                }
+                return {
+                  encrypt: function (data) { return crypt(1, data); },
+                  decrypt: function (data) { return crypt(2, data); },
+                  decryptStr: function (data) { return java.bytesToStr(crypt(2, data)); },
+                  encryptBase64: function (data) { return __legadoBase64EncodeBytes(crypt(1, data)); },
+                  encryptHex: function (data) { return crypt(1, data).map(function (value) {
+                    return ('0' + (value & 255).toString(16)).slice(-2);
+                  }).join(''); }
+                };
+              };
               java.getHeaderMap = function () {
                 var map = typeof source === 'undefined' ? {} : source.getHeaderMap(true);
                 map.put = function (key, value) { map[String(key)] = String(value); return value; };
@@ -875,6 +1137,13 @@ public struct JavaScriptRuleEvaluator: Sendable {
             BookSourceRuntimeStore.shared.put(sourceID: sourceID, key: key, value: text)
             return text
         }
+        let getVariable: @convention(block) () -> String = {
+            BookSourceRuntimeStore.shared.getVariable(sourceID: sourceID)
+        }
+        let setVariable: @convention(block) (Any?) -> Void = { value in
+            let text = value == nil || value is NSNull ? nil : Self.stringify(value)
+            BookSourceRuntimeStore.shared.setVariable(sourceID: sourceID, value: text)
+        }
         let getLoginHeader: @convention(block) () -> Any? = {
             let value = BookSourceRuntimeStore.shared.get(sourceID: sourceID, key: "loginHeader")
             return value.isEmpty ? nil : value
@@ -910,6 +1179,8 @@ public struct JavaScriptRuleEvaluator: Sendable {
         }
         object?.setObject(get, forKeyedSubscript: "get" as NSString)
         object?.setObject(put, forKeyedSubscript: "put" as NSString)
+        object?.setObject(getVariable, forKeyedSubscript: "getVariable" as NSString)
+        object?.setObject(setVariable, forKeyedSubscript: "__setVariable" as NSString)
         object?.setObject(getLoginHeader, forKeyedSubscript: "getLoginHeader" as NSString)
         object?.setObject(putLoginHeader, forKeyedSubscript: "putLoginHeader" as NSString)
         object?.setObject(getLoginInfo, forKeyedSubscript: "__getLoginInfoMap" as NSString)
@@ -934,6 +1205,10 @@ public struct JavaScriptRuleEvaluator: Sendable {
             (function () {
               source.getKey = function () { return source.bookSourceUrl; };
               source.getTag = function () { return source.bookSourceName; };
+              source.setVariable = function (value) {
+                source.__setVariable(value == null ? null : String(value));
+              };
+              source.putVariable = source.setVariable;
               source.getLoginInfoMap = function () {
                 var map = source.__getLoginInfoMap() || {};
                 map.get = function (key) { return map[String(key)]; };
@@ -1007,6 +1282,127 @@ public struct JavaScriptRuleEvaluator: Sendable {
         context.setObject(chapter?.title ?? "", forKeyedSubscript: "title" as NSString)
     }
 
+    private func evaluateElementRule(
+        _ rule: String,
+        html: String,
+        executionContext: RuleExecutionContext
+    ) throws -> [String] {
+        let plan = try RuleExpressionParser().parse(rule)
+        var branchResults: [[String]] = []
+        for branch in plan.branches {
+            let values: [String]
+            switch branch.mode {
+            case .css:
+                values = try HTMLRuleEvaluator().selectCSSFragments(
+                    branch.expression,
+                    html: html,
+                    baseURL: executionContext.baseURL,
+                    isFragment: executionContext.isHTMLFragment
+                )
+            case .xpath:
+                values = try HTMLRuleEvaluator().selectXPathFragments(
+                    branch.expression,
+                    html: html,
+                    isFragment: executionContext.isHTMLFragment
+                )
+            default:
+                throw RuleEngineError.unsupportedRule(rule: branch.expression, feature: "java.getElements 仅支持 CSS/XPath 选择器")
+            }
+            branchResults.append(values)
+            if plan.combination == .fallback, !values.isEmpty { break }
+        }
+        switch plan.combination {
+        case .single, .concatenate:
+            return branchResults.flatMap { $0 }
+        case .fallback:
+            return branchResults.first(where: { !$0.isEmpty }) ?? []
+        case .interleave:
+            guard let count = branchResults.first?.count else { return [] }
+            return (0..<count).flatMap { index in
+                branchResults.compactMap { $0.indices.contains(index) ? $0[index] : nil }
+            }
+        }
+    }
+
+    private func evaluateStringRuleList(
+        _ rule: String,
+        content: JSONValue,
+        isURL: Bool,
+        executionContext: RuleExecutionContext
+    ) throws -> [String] {
+        let trimmedRule = rule.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRule.isEmpty else { return [] }
+        if case .object(let object) = content, let direct = object[trimmedRule] {
+            let values: [String]
+            if case .array(let items) = direct { values = items.map(\.stringValue) }
+            else { values = [direct.stringValue] }
+            return values.map { resolveJavaScriptRuleURL($0, enabled: isURL, context: executionContext) }
+        }
+
+        let jsonContent: JSONValue?
+        if case .string(let text) = content { jsonContent = try? JSONValue.decode(data: Data(text.utf8)) }
+        else { jsonContent = content }
+        let plan = try RuleExpressionParser().parse(trimmedRule, inputLooksLikeJSON: jsonContent != nil)
+        var branchResults: [[String]] = []
+        for branch in plan.branches {
+            var values: [String]
+            if branch.expression.isEmpty {
+                values = [content.stringValue]
+            } else {
+                switch branch.mode {
+                case .css:
+                    values = try HTMLRuleEvaluator().extractCSS(
+                        branch.expression,
+                        html: content.stringValue,
+                        baseURL: executionContext.baseURL,
+                        isFragment: executionContext.isHTMLFragment
+                    )
+                case .xpath:
+                    values = try HTMLRuleEvaluator().extractXPath(
+                        branch.expression,
+                        html: content.stringValue,
+                        isFragment: executionContext.isHTMLFragment
+                    )
+                case .jsonPath:
+                    let json: JSONValue
+                    if case .string(let text) = content { json = try JSONValue.decode(data: Data(text.utf8)) }
+                    else { json = content }
+                    values = RuleEvaluation(values: try JSONPathEvaluator().evaluateRule(branch.expression, in: json)).strings
+                case .regex:
+                    values = try RegexEvaluator().captureGroups(pattern: branch.expression, input: content.stringValue)
+                        .map { $0.count > 1 ? $0.dropFirst().joined() : $0.first ?? "" }
+                case .javaScript:
+                    var nestedContext = executionContext
+                    nestedContext.content = content
+                    values = [try evaluate(script: branch.expression, result: content, executionContext: nestedContext).value.stringValue]
+                case .webJavaScript:
+                    throw RuleEngineError.unsupportedRule(rule: branch.expression, feature: "java.getStringList WebView JavaScript")
+                }
+            }
+            if let pattern = branch.replacePattern, !pattern.isEmpty {
+                values = try values.map {
+                    try RegexEvaluator().replacing(pattern: pattern, in: $0, with: branch.replacement, firstOnly: branch.replaceFirst)
+                }
+            }
+            branchResults.append(values)
+            if plan.combination == .fallback, !values.isEmpty { break }
+        }
+
+        let combined: [String]
+        switch plan.combination {
+        case .single, .concatenate:
+            combined = branchResults.flatMap { $0 }
+        case .fallback:
+            combined = branchResults.first(where: { !$0.isEmpty }) ?? []
+        case .interleave:
+            guard let count = branchResults.first?.count else { return [] }
+            combined = (0..<count).flatMap { index in
+                branchResults.compactMap { $0.indices.contains(index) ? $0[index] : nil }
+            }
+        }
+        return combined.map { resolveJavaScriptRuleURL($0, enabled: isURL, context: executionContext) }
+    }
+
     private func evaluateStringRule(
         _ rule: String,
         content: JSONValue,
@@ -1053,10 +1449,12 @@ public struct JavaScriptRuleEvaluator: Sendable {
                     values = try RegexEvaluator().captureGroups(pattern: branch.expression, input: content.stringValue)
                         .map { $0.count > 1 ? $0.dropFirst().joined() : $0.first ?? "" }
                 case .javaScript:
+                    var nestedContext = executionContext
+                    nestedContext.content = content
                     values = [try evaluate(
                         script: branch.expression,
                         result: content,
-                        executionContext: executionContext
+                        executionContext: nestedContext
                     ).value.stringValue]
                 case .webJavaScript:
                     throw RuleEngineError.unsupportedRule(rule: branch.expression, feature: "java.getString WebView JavaScript")
@@ -1271,13 +1669,113 @@ public struct JavaScriptRuleEvaluator: Sendable {
             parseBase64Binary: function (value) { return __legadoBase64DecodeBytes(NativeString(value)); },
             printHexBinary: function (bytes) { return __legadoHexEncodeBytes(checkedBytes(bytes)); }
           });
+          function makeElement(html) {
+            return {
+              html: function () { return html; },
+              outerHtml: function () { return html; },
+              text: function () { return global.java.getString('@text', html); },
+              ownText: function () { return global.java.getString('@ownText', html); },
+              attr: function (name) {
+                var tag = (html.match(/^\s*<([a-zA-Z][\w:-]*)/) || [])[1];
+                return tag ? global.java.getString(tag + '@' + NativeString(name), html) : '';
+              },
+              select: function (selector) { return makeElements(global.java.__getElements(NativeString(selector), html)); },
+              getElementsByClass: function (names) {
+                return this.select('.' + NativeString(names).trim().split(/\s+/).join('.'));
+              },
+              toString: function () { return html; }
+            };
+          }
+          function makeElements(values) {
+            var items = (values || []).map(makeElement);
+            items.first = function () { return items.length ? items[0] : null; };
+            items.last = function () { return items.length ? items[items.length - 1] : null; };
+            items.get = function (index) { return items[index] || null; };
+            items.size = function () { return items.length; };
+            items.select = function (selector) {
+              var selected = [];
+              items.forEach(function (item) {
+                selected = selected.concat(global.java.__getElements(NativeString(selector), item.outerHtml()));
+              });
+              return makeElements(selected);
+            };
+            items.getElementsByClass = function (names) {
+              return this.select('.' + NativeString(names).trim().split(/\s+/).join('.'));
+            };
+            items.text = function () {
+              return items.map(function (item) { return item.text(); }).filter(Boolean).join(' ');
+            };
+            items.html = function () {
+              return items.map(function (item) { return item.html(); }).join('');
+            };
+            items.attr = function (name) {
+              return items.length ? items[0].attr(name) : '';
+            };
+            items.toString = function () {
+              return items.map(function (item) { return item.outerHtml(); }).join('');
+            };
+            return items;
+          }
+          function makeDocument(html) {
+            return {
+              select: function (selector) { return makeElements(global.java.__getElements(NativeString(selector), html)); },
+              getElementsByClass: function (names) {
+                return makeElements(global.java.__getElements('.' + NativeString(names).trim().split(/\s+/).join('.'), html));
+              },
+              getElementsByTag: function (name) {
+                return makeElements(global.java.__getElements(NativeString(name), html));
+              },
+              text: function () { return global.java.getString('@text', html); },
+              html: function () { return html; },
+              toString: function () { return html; }
+            };
+          }
+          var Connection = javaClass('Connection', { Method: { GET: 'GET', HEAD: 'HEAD', POST: 'POST' } });
+          var Jsoup = javaClass('Jsoup', {
+            parse: function (html) { return makeDocument(NativeString(html == null ? '' : html)); },
+            connect: function (rawURL) {
+              var method = 'GET';
+              var timeout = 30000;
+              var connection = {
+                method: function (value) { method = NativeString(value); return connection; },
+                timeout: function (value) { timeout = Number(value) || timeout; return connection; },
+                ignoreHttpErrors: function () { return connection; },
+                ignoreContentType: function () { return connection; },
+                followRedirects: function () { return connection; },
+                execute: function () {
+                  if (method.toUpperCase() === 'HEAD') {
+                    var head = global.java.head(rawURL, {}, timeout);
+                    return { body: function () { return head.body(); }, statusCode: function () { return head.statusCode(); }, header: function (name) { return head.header(name); } };
+                  }
+                  if (method.toUpperCase() === 'POST') {
+                    var post = global.java.post(rawURL, '', {}, timeout);
+                    return { body: function () { return post.body(); }, statusCode: function () { return post.statusCode(); }, header: function (name) { return post.header(name); } };
+                  }
+                  var response = global.java.connect(rawURL, {}, timeout);
+                  return {
+                    body: function () { return response.body; },
+                    statusCode: function () { return response.code; },
+                    header: function (name) {
+                      var wanted = NativeString(name).toLowerCase();
+                      for (var key in response.headers) if (key.toLowerCase() === wanted) return response.headers[key];
+                      return null;
+                    }
+                  };
+                },
+                get: function () { return makeDocument(connection.execute().body()); },
+                post: function () { method = 'POST'; return makeDocument(connection.execute().body()); }
+              };
+              return connection;
+            }
+          });
           var packages = {
             javax: {
               crypto: { Mac: Mac, Cipher: Cipher, spec: { SecretKeySpec: SecretKeySpec, IvParameterSpec: IvParameterSpec } },
               xml: { bind: { DatatypeConverter: DatatypeConverter } }
             },
             java: { net: { URLEncoder: URLEncoder }, lang: { String: JavaString }, util: { Base64: Base64, Arrays: Arrays } },
-            android: { util: { Base64: Base64 } }
+            android: { util: { Base64: Base64 } },
+            org: { jsoup: { Jsoup: Jsoup, Connection: Connection } }
           };
           Object.freeze(packages.javax.crypto.spec);
           Object.freeze(packages.javax.crypto);
@@ -1290,11 +1788,15 @@ public struct JavaScriptRuleEvaluator: Sendable {
           Object.freeze(packages.java);
           Object.freeze(packages.android.util);
           Object.freeze(packages.android);
+          Object.freeze(packages.org.jsoup);
+          Object.freeze(packages.org);
           global.Packages = Object.freeze(packages);
+          global.org = packages.org;
           global.JavaImporter = Object.freeze(function () {
             var imported = Object.create(null);
             var allowedPackages = [packages.java.lang, packages.java.net, packages.java.util,
-              packages.javax.crypto, packages.javax.crypto.spec, packages.javax.xml.bind, packages.android.util];
+              packages.javax.crypto, packages.javax.crypto.spec, packages.javax.xml.bind, packages.android.util,
+              packages.org.jsoup];
             function addClass(value) {
               if (!value || typeof value.__javaSimpleName !== 'string') throw new TypeError('Unsupported Java class import');
               if (!Object.prototype.hasOwnProperty.call(imported, value.__javaSimpleName)) {
@@ -1383,6 +1885,23 @@ public final class BookSourceRuntimeStore: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String: [String: String]] = [:]
     private let persistent = PersistentRuntimeCache.shared
+    private let sourceVariableCache: JavaScriptRuleCache
+
+    init(sourceVariableCache: JavaScriptRuleCache = .shared) {
+        self.sourceVariableCache = sourceVariableCache
+    }
+
+    // Android BaseSource 的整段源变量存入 CacheManager，独立于 get/put 的 v_ 命名空间。
+    // 复用 JS 缓存也让 cache.get("sourceVariable_" + source.getKey()) 读取同一份数据。
+    public func getVariable(sourceID: String) -> String {
+        sourceVariableCache.get("sourceVariable_\(sourceID)") ?? ""
+    }
+
+    public func setVariable(sourceID: String, value: String?) {
+        let key = "sourceVariable_\(sourceID)"
+        if let value { sourceVariableCache.put(key, value: value) }
+        else { sourceVariableCache.delete(key) }
+    }
 
     public func get(sourceID: String, key: String) -> String {
         lock.lock()

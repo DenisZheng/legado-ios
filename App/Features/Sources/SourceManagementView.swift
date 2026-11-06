@@ -238,7 +238,8 @@ struct SourceManagementView: View {
     }
 }
 
-private struct SourceFileImportPicker: UIViewControllerRepresentable {
+// 书源与 RSS 共用文件选择、权限持有和副本导入行为。
+struct SourceFileImportPicker: UIViewControllerRepresentable {
     let onPick: @MainActor ([SourceImportFile]) -> Void
     let onCancel: @MainActor () -> Void
 

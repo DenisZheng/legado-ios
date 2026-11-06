@@ -218,6 +218,192 @@ struct JavaScriptRuleEvaluatorTests {
         #expect(directJSON.value.stringValue == "书名:42")
     }
 
+    @Test func supportsAndroidRSSGetElementsSetContentAndGetStringList() throws {
+        let html = #"""
+            <section class="authorname">甲<font>№1</font><div>作者甲</div></section>
+            <section class="authorname">乙<font>№2</font><div>作者乙</div></section>
+            """#
+        let script = #"""
+            var numbers = java.getStringList("@@class.authorname@font.0@text");
+            var authors = java.getStringList("@@class.authorname@div@textNodes&&class.authorname@ownText");
+            var elements = java.getElements("@@class.authorname@div");
+            java.setContent(elements[0]);
+            var current = java.getString("@text");
+            var parsed = org.jsoup.Jsoup.parse("<article><a href='/chapter/1'>第一章</a></article>");
+            var selected = parsed.select("a");
+            numbers.join(",") + "|" + authors.join(",") + "|" + elements.length + "|" +
+              current + "|" + selected.text() + "|" + selected.attr("href");
+            """#
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: script,
+            result: .string(html),
+            executionContext: .init(baseURL: "https://rss.example.test/")
+        )
+
+        #expect(value.value.stringValue == "№1,№2|作者甲,作者乙,甲,乙|2|作者甲|第一章|/chapter/1")
+    }
+
+    @Test func setContentReturnsChainableAnalyzerAndUpdatesBaseURLWithoutReplacingResultSnapshot() throws {
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: """
+                var analyzer = java.setContent(
+                  '<article><a href="/chapter/2">第二章</a></article>',
+                  'https://rss.example.test/book/'
+                );
+                analyzer.setBaseUrl(null);
+                analyzer.getString('a@text') + '|' +
+                  analyzer.getString('a@href', null, true) + '|' +
+                  (typeof analyzer.getElements === 'function');
+                """,
+            result: .string("<p>original result</p>"),
+            executionContext: .init(baseURL: "https://rss.example.test/original/")
+        )
+        #expect(value.value.stringValue == "第二章|https://rss.example.test/chapter/2|true")
+    }
+
+    @Test func supportsJsoupConnectionHeadAndGet() throws {
+        let evaluator = JavaScriptRuleEvaluator(networkLoader: JavaScriptAjaxAllMock())
+        let value = try evaluator.evaluate(
+            script: "var r=org.jsoup.Jsoup.connect('https://ajax-all.test/get').timeout(5000).execute(); r.statusCode() + ':' + r.body()",
+            result: .null,
+            executionContext: .init()
+        )
+
+        #expect(value.value.stringValue == "200:body:get")
+    }
+
+    @Test func supportsAndroidLongToastAndToURLCompatibility() throws {
+        let source = BookSource(bookSourceUrl: "https://rss.example.test/base/", bookSourceName: "RSS兼容")
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: """
+                var parsed = java.toURL('../feed/list?page=2&keyword=%E4%B8%AD%E6%96%87', 'https://rss.example.test/base/article');
+                java.longToast('compat');
+                parsed.host + '|' + parsed.origin + '|' + parsed.pathname + '|' +
+                  parsed.searchParams.page + '|' + parsed.searchParams.keyword + '|' +
+                  parsed.href + '|' + parsed.toString();
+                """,
+            result: .null,
+            executionContext: .init(baseURL: source.bookSourceUrl, source: source)
+        )
+        #expect(value.value.stringValue == "rss.example.test|https://rss.example.test|/feed/list|2|中文|https://rss.example.test/feed/list?page=2&keyword=%E4%B8%AD%E6%96%87|https://rss.example.test/feed/list?page=2&keyword=%E4%B8%AD%E6%96%87")
+    }
+
+    @Test func toURLMatchesAndroidQueryDecodingAndNullSemantics() throws {
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: """
+                var parsed = java.toURL(
+                  'https://rss.example.test/路径?q=a+b&raw%20key=value&flag&empty=&dup=one&dup=two',
+                  ''
+                );
+                var noQuery = java.toURL('https://rss.example.test/no-query', '');
+                [
+                  parsed.pathname,
+                  parsed.searchParams.q,
+                  parsed.searchParams['raw%20key'],
+                  String(parsed.searchParams.flag),
+                  parsed.searchParams.empty,
+                  parsed.searchParams.dup,
+                  noQuery.searchParams === null
+                ].join('|');
+                """,
+            result: .null,
+            executionContext: .init(baseURL: "https://must-not-be-used.example/")
+        )
+        #expect(value.value.stringValue == "/%E8%B7%AF%E5%BE%84|a b|value|undefined||two|true")
+    }
+
+    @Test func toURLDoesNotImplicitlyUseRuleBaseURLWhenBaseArgumentIsEmpty() throws {
+        #expect(throws: RuleEngineError.self) {
+            try JavaScriptRuleEvaluator().evaluate(
+                script: "java.toURL('/relative/path', '')",
+                result: .null,
+                executionContext: .init(baseURL: "https://rss.example.test/")
+            )
+        }
+    }
+
+    @Test func exposesAndroidCacheGlobalMemoryPersistentAndFileAPIs() throws {
+        let suffix = UUID().uuidString
+        let persistentKey = "rss-test-persistent-" + suffix
+        let memoryKey = "rss-test-memory-" + suffix
+        let fileKey = "rss-test-file-" + suffix
+        defer {
+            JavaScriptRuleCache.shared.delete(persistentKey)
+            JavaScriptRuleCache.shared.delete(memoryKey)
+            JavaScriptRuleCache.shared.delete(fileKey)
+        }
+
+        let evaluator = JavaScriptRuleEvaluator()
+        let value = try evaluator.evaluate(
+            script: """
+                cache.put('\(persistentKey)', 'persistent-value');
+                cache.putMemory('\(memoryKey)', 'memory-value');
+                cache.putFile('\(fileKey)', 'file-value');
+                cache.get('\(persistentKey)') + '|' +
+                  cache.getFromMemory('\(memoryKey)') + '|' +
+                  cache.getFile('\(fileKey)');
+                """,
+            result: .null,
+            executionContext: .init()
+        )
+        #expect(value.value.stringValue == "persistent-value|memory-value|file-value")
+
+        JavaScriptRuleCache.shared.deleteMemory(persistentKey)
+        let diskValue = try evaluator.evaluate(
+            script: "cache.get('\(persistentKey)', true)",
+            result: .null,
+            executionContext: .init()
+        )
+        #expect(diskValue.value.stringValue == "persistent-value")
+
+        let deleted = try evaluator.evaluate(
+            script: """
+                cache.deleteMemory('\(memoryKey)');
+                cache.getFromMemory('\(memoryKey)') === null;
+                """,
+            result: .null,
+            executionContext: .init()
+        )
+        #expect(deleted.value.stringValue == "true")
+    }
+
+    @Test func expiringCacheEntriesStayOutOfMemoryAcrossJavaScriptEvaluations() throws {
+        let key = "rss-test-expiring-" + UUID().uuidString
+        defer { JavaScriptRuleCache.shared.delete(key) }
+        let evaluator = JavaScriptRuleEvaluator()
+        _ = try evaluator.evaluate(
+            script: "cache.putMemory('\(key)', 'old'); cache.put('\(key)', 'temporary', 300);",
+            result: .null,
+            executionContext: .init()
+        )
+        let value = try evaluator.evaluate(
+            script: "cache.get('\(key)') + '|' + (cache.getFromMemory('\(key)') === null)",
+            result: .null,
+            executionContext: .init()
+        )
+        #expect(value.value.stringValue == "temporary|true")
+    }
+
+    @Test func supportsAndroidCreateSymmetricCryptoAESCBCApi() throws {
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: """
+                var cipher = java.createSymmetricCrypto(
+                  'AES/CBC/PKCS5Padding',
+                  '0123456789abcdef',
+                  'abcdef0123456789'
+                );
+                var encrypted = cipher.encryptBase64('Legado RSS');
+                var decrypted = cipher.decryptStr(encrypted);
+                var hex = cipher.encryptHex('video');
+                decrypted + '|' + (cipher.decryptStr(hex) === 'video') + '|' +
+                  (cipher.decrypt(encrypted).length > 0);
+                """,
+            result: .null,
+            executionContext: .init()
+        )
+        #expect(value.value.stringValue == "Legado RSS|true|true")
+    }
+
     @Test func jsonParseKeepsPlainTextResponsesButStillRejectsBrokenJSON() throws {
         let evaluator = JavaScriptRuleEvaluator()
         let plain = try evaluator.evaluate(
@@ -459,6 +645,73 @@ struct JavaScriptRuleEvaluatorTests {
 
         #expect(first.value.stringValue == "变量书:变量章")
         #expect(second.value.stringValue == "persisted")
+    }
+
+    @Test func sourceVariableAliasesPreserveStringsAndClearNull() throws {
+        let source = BookSource(bookSourceUrl: "https://source-variable.test/\(UUID().uuidString)", bookSourceName: "变量源")
+        defer { BookSourceRuntimeStore.shared.setVariable(sourceID: source.id, value: nil) }
+        let evaluator = JavaScriptRuleEvaluator()
+        let value = try evaluator.evaluate(script: """
+            var values = [source.getVariable()];
+            values.push(typeof source.setVariable('null'), source.getVariable());
+            values.push(typeof source.putVariable(42), source.getVariable());
+            source.setVariable(null);
+            values.push(source.getVariable());
+            source.putVariable('');
+            values.push(source.getVariable(), cache.get('sourceVariable_' + source.getKey()));
+            source.putVariable(null);
+            values.push(cache.get('sourceVariable_' + source.getKey()));
+            values;
+            """, result: .null, executionContext: .init(source: source))
+
+        #expect(value.value == .array([
+            .string(""), .string("undefined"), .string("null"),
+            .string("undefined"), .string("42"), .string(""),
+            .string(""), .string(""), .null
+        ]))
+    }
+
+    @Test func sourceVariableSurvivesEvaluationWithoutReplacingKeyValueScopes() throws {
+        let source = BookSource(bookSourceUrl: "https://source-variable-scope.test/\(UUID().uuidString)", bookSourceName: "变量源")
+        let other = BookSource(bookSourceUrl: source.id + "/other", bookSourceName: "另一源")
+        defer {
+            BookSourceRuntimeStore.shared.setVariable(sourceID: source.id, value: nil)
+            BookSourceRuntimeStore.shared.put(sourceID: source.id, key: "variable", value: "")
+        }
+        _ = try JavaScriptRuleEvaluator().evaluate(
+            script: "source.put('variable', '键值'); source.setVariable('整段变量');",
+            result: .null, executionContext: .init(source: source)
+        )
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: "[source.getVariable(), source.get('variable'), java.get('variable')]",
+            result: .null, executionContext: .init(variables: ["variable": "规则变量"], source: source)
+        )
+        #expect(value.value == .array([.string("整段变量"), .string("键值"), .string("规则变量")]))
+        let isolated = try JavaScriptRuleEvaluator().evaluate(
+            script: "source.getVariable()", result: .null, executionContext: .init(source: other)
+        )
+        #expect(isolated.value == .string(""))
+    }
+
+    @Test func sourceVariableRestoresFromPersistentCacheAndNullRemovesTheEntry() throws {
+        let suite = "source-variable-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let cache = JavaScriptRuleCache(defaults: defaults)
+        let store = BookSourceRuntimeStore(sourceVariableCache: cache)
+        let sourceID = "https://persistent-source.test"
+        store.setVariable(sourceID: sourceID, value: #"{"分类":"新闻"}"#)
+
+        // 新缓存实例没有前一次求值的内存条目，必须读回持久值。
+        let restored = BookSourceRuntimeStore(sourceVariableCache: JavaScriptRuleCache(defaults: defaults))
+        #expect(restored.getVariable(sourceID: sourceID) == #"{"分类":"新闻"}"#)
+        #expect(restored.getVariable(sourceID: sourceID + "/other") == "")
+        store.setVariable(sourceID: sourceID, value: "")
+        #expect(cache.get("sourceVariable_" + sourceID, onlyDisk: true) == "")
+        store.setVariable(sourceID: sourceID, value: nil)
+        #expect(cache.get("sourceVariable_" + sourceID, onlyDisk: true) == nil)
+        let afterClear = BookSourceRuntimeStore(sourceVariableCache: JavaScriptRuleCache(defaults: defaults))
+        #expect(afterClear.getVariable(sourceID: sourceID) == "")
     }
 
     @Test func resolvesDynamicLenientAndLoginHeadersByPriority() throws {

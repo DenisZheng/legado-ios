@@ -70,8 +70,19 @@ struct LegadoApp: App {
                                                          detail: bookLibrary.errorMessage ?? url.lastPathComponent)
                             return
                         }
+                        let scheme = url.scheme?.lowercased() ?? ""
+                        if ["legado", "yuedu"].contains(scheme),
+                           url.host?.lowercased() == "import",
+                           url.path.lowercased() == "/rsssource",
+                           let sourceURL = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                            .queryItems?.first(where: { $0.name == "src" })?.value,
+                           !sourceURL.isEmpty {
+                            await rssLibrary.load()
+                            await rssLibrary.importText(sourceURL)
+                            return
+                        }
                         await sourceLibrary.load()
-                        if url.scheme?.lowercased() == "legado", url.path.lowercased() == "/replacerule" {
+                        if ["legado", "yuedu"].contains(scheme), url.path.lowercased() == "/replacerule" {
                             await replaceRuleLibrary.load()
                             await replaceRuleLibrary.importText(url.absoluteString)
                             if let notice = replaceRuleLibrary.notice {

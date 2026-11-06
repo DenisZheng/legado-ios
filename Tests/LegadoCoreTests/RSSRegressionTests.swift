@@ -3,6 +3,67 @@ import Testing
 @testable import LegadoCore
 
 struct RSSRegressionTests {
+    @Test func dynamicSortsUseSourceVariableUpdatesAcrossEvaluations() async throws {
+        var source = RssSource(sourceUrl: "https://rss-variable.test/\(UUID().uuidString)", sourceName: "动态分类")
+        source.sortUrl = "@js:source.getVariable() || '默认::/default'"
+        defer { BookSourceRuntimeStore.shared.setVariable(sourceID: source.sourceUrl, value: nil) }
+        #expect(await RSSSortResolver().resolve(source) == [.init(name: "默认", url: "/default")])
+
+        _ = try await JavaScriptRuleEvaluator().evaluateAsync(
+            script: "source.putVariable('新闻::/news&&科技::/tech');",
+            result: .null, executionContext: .init(source: source.bookSourceAdapter)
+        )
+        #expect(await RSSSortResolver().resolve(source) == [
+            .init(name: "新闻", url: "/news"), .init(name: "科技", url: "/tech")
+        ])
+        _ = try await JavaScriptRuleEvaluator().evaluateAsync(
+            script: "source.setVariable('更新::/updated');",
+            result: .null, executionContext: .init(source: source.bookSourceAdapter)
+        )
+        #expect(await RSSSortResolver().resolve(source) == [.init(name: "更新", url: "/updated")])
+        BookSourceRuntimeStore.shared.setVariable(sourceID: source.sourceUrl, value: nil)
+        #expect(await RSSSortResolver().resolve(source) == [.init(name: "默认", url: "/default")])
+    }
+
+    @Test func publicRealWorldRSSManifestAndFixturesRemainImportable() throws {
+        let manifestURL = try #require(Bundle.module.url(
+            forResource: "sources",
+            withExtension: "json",
+            subdirectory: "Fixtures/RealWorldRSS"
+        ))
+        let payload = try RSSSourceImporter().decode(Data(contentsOf: manifestURL))
+        #expect(payload.sources.map(\.sourceName) == ["少数派", "异次元软件世界"])
+        #expect(payload.sources.map(\.sourceUrl) == ["https://sspai.com/feed", "https://feed.iplaysoft.com/"])
+        #expect(payload.sources.allSatisfy { $0.ruleArticles == nil && $0.enableJs == false })
+
+        let fixtures = [
+            ("sspai", "https://sspai.com/feed", 2),
+            ("iplaysoft", "https://feed.iplaysoft.com/", 1)
+        ]
+        for (name, sourceURL, expectedCount) in fixtures {
+            let fixtureURL = try #require(Bundle.module.url(
+                forResource: name,
+                withExtension: "xml",
+                subdirectory: "Fixtures/RealWorldRSS"
+            ))
+            let xml = try String(contentsOf: fixtureURL, encoding: .utf8)
+            let parsed = try RSSDefaultParser.parse(sortName: "全部", xml: xml, sourceURL: sourceURL)
+            #expect(parsed.articles.count == expectedCount)
+            #expect(parsed.articles.first?.origin == sourceURL)
+            #expect(parsed.articles.first?.title.hasPrefix("公开测试条目") == true)
+        }
+    }
+
+    @Test func RSSWebViewBridgeRequiresPreloadAndNeverRunsOnRemotePages() {
+        var source = RssSource(sourceUrl: "https://feed.example.test/", sourceName: "测试源")
+        let article = RSSReadingMode.html(content: "<p>parsed article</p>", baseURL: source.sourceUrl)
+        #expect(!article.allowsNativeBridge(for: source))
+        source.preloadJs = "window.rssReady = true;"
+        #expect(article.allowsNativeBridge(for: source))
+        #expect(!RSSReadingMode.web(url: "https://article.example.test/").allowsNativeBridge(for: source))
+        #expect(!RSSReadingMode.startHTML(content: "<html></html>", baseURL: nil).allowsNativeBridge(for: RssSource(sourceUrl: source.sourceUrl, sourceName: source.sourceName)))
+    }
+
     @Test func concurrentSourceTogglesDoNotOverwriteOneAnother() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -7,6 +7,14 @@ import Testing
 struct BookSourceImporterTests {
     private let importer = BookSourceImporter()
 
+    @Test func acceptsLegadoAndYueduBookSourceImportDeepLinks() throws {
+        let encoded = "https%3A%2F%2Fexample.test%2FbookSource.json"
+        let legado = try RuleImportInput.parse("legado://import/bookSource?src=\(encoded)")
+        let yuedu = try RuleImportInput.parse("yuedu://import/bookSource?src=\(encoded)")
+        #expect(legado == yuedu)
+        #expect(legado == .remote(URL(string: "https://example.test/bookSource.json")!, withoutUserAgent: false))
+    }
+
     @Test func decodesArrayAndObjectRules() throws {
         let data = Data(
             """

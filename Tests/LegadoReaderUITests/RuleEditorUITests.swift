@@ -2,6 +2,44 @@ import XCTest
 
 @MainActor
 final class RuleEditorUITests: XCTestCase {
+    private static var exportedFixtureFolder: String?
+
+    private func prepareSourceImportFixtureIfNeeded() {
+        guard Self.exportedFixtureFolder == nil else { return }
+        let folder = "Legado Import Fixtures \(UUID().uuidString)"
+        let fixtureApp = XCUIApplication(bundleIdentifier: "com.epiboly.legado.source-import-fixtures")
+        fixtureApp.launchArguments = ["-fixtureFolderName", folder]
+        fixtureApp.launch()
+        let export = fixtureApp.buttons["exportImportFixtures"]
+        XCTAssertTrue(export.waitForExistence(timeout: 20), "先运行 scripts/prepare-source-import-fixture.sh")
+        XCTAssertTrue(export.isEnabled, fixtureApp.debugDescription)
+        export.tap()
+
+        let local = fixtureApp.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@ OR label CONTAINS %@ OR label == %@",
+            "我的 iPhone", "我的iPhone", "On My iPhone"
+        )).firstMatch
+        let browse = fixtureApp.buttons.matching(NSPredicate(
+            format: "label IN %@", ["Browse", "浏览", "Locations", "位置"]
+        )).firstMatch
+        let ready = expectation(for: NSPredicate { _, _ in
+            local.exists || (browse.exists && browse.isHittable)
+        }, evaluatedWith: nil)
+        wait(for: [ready], timeout: 20)
+        if !local.exists { browse.tap() }
+        XCTAssertTrue(local.waitForExistence(timeout: 10), fixtureApp.debugDescription)
+        local.tap()
+        let save = fixtureApp.buttons.matching(NSPredicate(
+            format: "label IN %@", ["Save", "存储", "保存", "Export", "导出", "Move", "移动"]
+        )).firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 10), fixtureApp.debugDescription)
+        XCTAssertTrue(save.isEnabled, fixtureApp.debugDescription)
+        save.tap()
+        XCTAssertTrue(fixtureApp.staticTexts["夹具已存储并校验：7"].waitForExistence(timeout: 20), fixtureApp.debugDescription)
+        Self.exportedFixtureFolder = folder
+        fixtureApp.terminate()
+    }
+
     func testRSSSearchSubmissionPaginationAndFavorites() throws {
         guard let fixture = ProcessInfo.processInfo.environment["LEGADO_RSS_UI_FIXTURE_URL"] else {
             throw XCTSkip("Set LEGADO_RSS_UI_FIXTURE_URL to the local RSS fixture source URL")
@@ -67,6 +105,102 @@ final class RuleEditorUITests: XCTestCase {
         XCTAssertTrue(result.waitForExistence(timeout: 5))
     }
 
+    func testRSSFilePickerOpensAndImportsSelectedJSON() throws {
+        continueAfterFailure = false
+        prepareSourceImportFixtureIfNeeded()
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiDemo", "-defaultHomePage", "rss", "-themeMode", "1"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["RSS"].waitForExistence(timeout: 20))
+
+        app.buttons["RSS操作"].tap()
+        app.buttons["导入文件"].tap()
+
+        let cancel = app.buttons.matching(
+            NSPredicate(format: "label IN %@", ["Cancel", "取消"])
+        ).firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 20))
+        cancel.tap()
+        let pickerClosed = expectation(for: NSPredicate { _, _ in
+            !cancel.exists && app.buttons["RSS操作"].isHittable
+        }, evaluatedWith: nil)
+        wait(for: [pickerClosed], timeout: 10)
+        app.buttons["RSS操作"].tap()
+        app.buttons["导入文件"].tap()
+
+        let rssFile = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", "RSS-Source")
+        ).firstMatch
+        openSourceImportFixture(in: app, targetFile: rssFile)
+        rssFile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let open = app.buttons.matching(
+            NSPredicate(format: "label IN %@", ["Open", "打开", "Import", "导入"])
+        ).firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(open.isEnabled, app.debugDescription)
+        open.tap()
+
+        let imported = app.staticTexts["本地 RSS 文件导入测试"]
+        XCTAssertTrue(imported.waitForExistence(timeout: 15), app.debugDescription)
+        let success = app.alerts["RSS导入完成"]
+        XCTAssertTrue(success.waitForExistence(timeout: 5), app.debugDescription)
+        success.buttons["好"].tap()
+        XCTAssertTrue(imported.exists)
+    }
+
+    private func openSourceImportFixture(in app: XCUIApplication, targetFile: XCUIElement) {
+        let fixtures = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@", Self.exportedFixtureFolder ?? "Legado Import Fixtures")
+        ).firstMatch
+        if !targetFile.waitForExistence(timeout: 3) {
+            let browse = app.buttons.matching(
+                NSPredicate(format: "label IN %@", ["Browse", "浏览", "Locations", "位置"])
+            ).firstMatch
+            let local = app.descendants(matching: .any).matching(NSPredicate(
+                format: "label CONTAINS %@ OR label CONTAINS %@ OR label == %@",
+                "我的 iPhone", "我的iPhone", "On My iPhone"
+            )).firstMatch
+            // 冷启动时 Files 的导航控件可能晚于 sheet 出现。先等待可操作状态，
+            // 避免一次 exists == false 就跳过 Browse，随后在 Recents 里寻找本地目录。
+            let ready = expectation(for: NSPredicate { _, _ in
+                targetFile.exists || fixtures.exists || local.exists || (browse.exists && browse.isHittable)
+            }, evaluatedWith: nil)
+            wait(for: [ready], timeout: 20)
+            if !targetFile.exists {
+                if !fixtures.exists {
+                    if !local.exists {
+                        XCTAssertTrue(browse.exists, app.debugDescription)
+                        browse.tap()
+                    }
+                    if !fixtures.waitForExistence(timeout: 2) {
+                        XCTAssertTrue(local.waitForExistence(timeout: 5), app.debugDescription)
+                        local.tap()
+                    }
+                }
+                XCTAssertTrue(fixtures.waitForExistence(timeout: 10),
+                              "Run scripts/prepare-source-import-fixture.sh for the simulator")
+                fixtures.tap()
+            }
+        }
+
+        XCTAssertTrue(targetFile.waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    func testRSSIsAvailableAsNormalTabAndCanBeDefaultHomePage() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiDemo", "-defaultHomePage", "rss", "-themeMode", "1"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["RSS"].waitForExistence(timeout: 20))
+        let rssTab = app.tabBars.buttons["RSS"]
+        XCTAssertTrue(rssTab.exists)
+
+        app.tabBars.buttons["书架"].tap()
+        XCTAssertTrue(rssTab.waitForExistence(timeout: 5))
+        rssTab.tap()
+        XCTAssertTrue(app.navigationBars["RSS"].waitForExistence(timeout: 5))
+    }
+
     func testBookshelfFilePickerImportsTXTAndEPUBAndDisablesJSON() throws {
         try exerciseLocalBookImport(fromFileManagement: false)
     }
@@ -77,6 +211,7 @@ final class RuleEditorUITests: XCTestCase {
 
     private func exerciseLocalBookImport(fromFileManagement: Bool) throws {
         continueAfterFailure = false
+        prepareSourceImportFixtureIfNeeded()
         let app = XCUIApplication()
         app.launchArguments = ["-uiDemo", "-themeMode", "1", "-bookshelfLayout", "grid3", "-pageAnim", "0"]
         if fromFileManagement { app.launchArguments += ["-uiDemoTab", "settings", "-uiDemoFiles"] }
@@ -100,7 +235,7 @@ final class RuleEditorUITests: XCTestCase {
         let pickerFiles = app.collectionViews["File View"].cells
         let txt = pickerFiles.matching(NSPredicate(format: "label BEGINSWITH %@", "TXT-Book")).firstMatch
         let fixtureJSON = pickerFiles.matching(NSPredicate(format: "label BEGINSWITH %@", "JSON-Source")).firstMatch
-        let fixtures = pickerFiles.matching(NSPredicate(format: "label BEGINSWITH %@", "书源导入测试")).firstMatch
+        let fixtures = pickerFiles.matching(NSPredicate(format: "label BEGINSWITH %@", Self.exportedFixtureFolder ?? "Legado Import Fixtures")).firstMatch
         // The file-management page underneath the picker can also contain TXT.
         // JSON exists only inside our fixture folder in the actual picker.
         if !fixtureJSON.waitForExistence(timeout: 3) {
@@ -173,6 +308,7 @@ final class RuleEditorUITests: XCTestCase {
 
     func testJSONFilePickerOffersOpenAndImportsSelectedFiles() throws {
         continueAfterFailure = false
+        prepareSourceImportFixtureIfNeeded()
         let app = XCUIApplication()
         app.launchArguments = ["-uiDemo", "-uiDemoTab", "sources"]
         app.launch()
@@ -191,24 +327,7 @@ final class RuleEditorUITests: XCTestCase {
         XCTAssertTrue(cancel.waitForExistence(timeout: 10))
 
         let json = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "JSON-Source")).firstMatch
-        let fixtures = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "书源导入测试")).firstMatch
-        if !json.waitForExistence(timeout: 3) {
-            if !fixtures.exists {
-                let browse = app.buttons.matching(NSPredicate(format: "label IN %@", ["Browse", "浏览", "Locations", "位置"])).firstMatch
-                if browse.exists { browse.tap() }
-                if !fixtures.waitForExistence(timeout: 2) {
-                    let local = app.descendants(matching: .any).matching(NSPredicate(
-                        format: "label CONTAINS %@ OR label CONTAINS %@ OR label == %@", "我的 iPhone", "我的iPhone", "On My iPhone"
-                    )).firstMatch
-                    if !local.waitForExistence(timeout: 5) { print("[SourceFilePicker] \(app.debugDescription)") }
-                    XCTAssertTrue(local.exists)
-                    local.tap()
-                }
-            }
-            XCTAssertTrue(fixtures.waitForExistence(timeout: 10), "Run sh scripts/prepare-source-import-fixture.sh <simulator-UUID> before this test")
-            fixtures.tap()
-        }
-        XCTAssertTrue(json.waitForExistence(timeout: 10))
+        openSourceImportFixture(in: app, targetFile: json)
         json.tap()
         let uppercase = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "JSON-Uppercase")).firstMatch
         XCTAssertTrue(uppercase.waitForExistence(timeout: 5))
