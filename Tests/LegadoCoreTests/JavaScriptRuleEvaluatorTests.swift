@@ -287,6 +287,40 @@ struct JavaScriptRuleEvaluatorTests {
         #expect(value.value.stringValue == "rss.example.test|https://rss.example.test|/feed/list|2|中文|https://rss.example.test/feed/list?page=2&keyword=%E4%B8%AD%E6%96%87|https://rss.example.test/feed/list?page=2&keyword=%E4%B8%AD%E6%96%87")
     }
 
+    @Test func toURLMatchesAndroidQueryDecodingAndNullSemantics() throws {
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: """
+                var parsed = java.toURL(
+                  'https://rss.example.test/路径?q=a+b&raw%20key=value&flag&empty=&dup=one&dup=two',
+                  ''
+                );
+                var noQuery = java.toURL('https://rss.example.test/no-query', '');
+                [
+                  parsed.pathname,
+                  parsed.searchParams.q,
+                  parsed.searchParams['raw%20key'],
+                  String(parsed.searchParams.flag),
+                  parsed.searchParams.empty,
+                  parsed.searchParams.dup,
+                  noQuery.searchParams === null
+                ].join('|');
+                """,
+            result: .null,
+            executionContext: .init(baseURL: "https://must-not-be-used.example/")
+        )
+        #expect(value.value.stringValue == "/%E8%B7%AF%E5%BE%84|a b|value|undefined||two|true")
+    }
+
+    @Test func toURLDoesNotImplicitlyUseRuleBaseURLWhenBaseArgumentIsEmpty() throws {
+        #expect(throws: RuleEngineError.self) {
+            try JavaScriptRuleEvaluator().evaluate(
+                script: "java.toURL('/relative/path', '')",
+                result: .null,
+                executionContext: .init(baseURL: "https://rss.example.test/")
+            )
+        }
+    }
+
     @Test func exposesAndroidCacheGlobalMemoryPersistentAndFileAPIs() throws {
         let suffix = UUID().uuidString
         let persistentKey = "rss-test-persistent-" + suffix
