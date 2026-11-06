@@ -254,6 +254,22 @@ struct JavaScriptRuleEvaluatorTests {
         #expect(value.value.stringValue == "200:body:get")
     }
 
+    @Test func supportsAndroidLongToastAndToURLCompatibility() throws {
+        let source = BookSource(bookSourceUrl: "https://rss.example.test/base/", bookSourceName: "RSS兼容")
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: """
+                var parsed = java.toURL('../feed/list?page=2&keyword=%E4%B8%AD%E6%96%87', 'https://rss.example.test/base/article');
+                java.longToast('compat');
+                parsed.host + '|' + parsed.origin + '|' + parsed.pathname + '|' +
+                  parsed.searchParams.page + '|' + parsed.searchParams.keyword + '|' +
+                  parsed.href + '|' + parsed.toString();
+                """,
+            result: .null,
+            executionContext: .init(source: source, baseURL: source.bookSourceUrl)
+        )
+        #expect(value.value.stringValue == "rss.example.test|https://rss.example.test|/feed/list|2|中文|https://rss.example.test/feed/list?page=2&keyword=%E4%B8%AD%E6%96%87|https://rss.example.test/feed/list?page=2&keyword=%E4%B8%AD%E6%96%87")
+    }
+
     @Test func jsonParseKeepsPlainTextResponsesButStillRejectsBrokenJSON() throws {
         let evaluator = JavaScriptRuleEvaluator()
         let plain = try evaluator.evaluate(
