@@ -208,8 +208,13 @@ struct RSSWebReaderView: UIViewRepresentable {
               window.source = Object.assign(\(sourceJSON), {
                 getKey: () => \(Self.jsString(source.sourceUrl)),
                 getTag: () => \(Self.jsString(source.sourceName)),
+                getVariable: () => nativeCall('__legado_source_variable__', {op:'get'}),
+                setVariable(value) {
+                  nativeCall('__legado_source_variable__', {op:'set', value:value == null ? null : String(value)});
+                },
                 get, put
               });
+              source.putVariable = source.setVariable;
               document.addEventListener('contextmenu', event => {
                 const image = event.target && event.target.closest ? event.target.closest('img') : null;
                 if (!image || !image.src) return;
@@ -321,6 +326,8 @@ struct RSSWebReaderView: UIViewRepresentable {
             }
             if prompt == "__legado_get__" {
                 completionHandler(BookSourceRuntimeStore.shared.get(sourceID: source.sourceUrl, key: defaultText ?? ""))
+            } else if prompt == "__legado_source_variable__" {
+                handleSourceVariablePrompt(defaultText, completionHandler: completionHandler)
             } else if prompt == "__legado_rule__" {
                 handleRulePrompt(defaultText, completionHandler: completionHandler)
             } else if prompt == "__legado_js__" {
@@ -330,6 +337,24 @@ struct RSSWebReaderView: UIViewRepresentable {
             } else if prompt == "__legado_cookie__" {
                 handleCookiePrompt(defaultText, completionHandler: completionHandler)
             } else { completionHandler(defaultText) }
+        }
+
+        private func handleSourceVariablePrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {
+            guard let payload, let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                completionHandler(nil)
+                return
+            }
+            let store = BookSourceRuntimeStore.shared
+            switch object["op"] as? String {
+            case "get":
+                completionHandler(Self.json(store.getVariable(sourceID: source.sourceUrl)))
+            case "set" where object["value"] is String || object["value"] is NSNull:
+                store.setVariable(sourceID: source.sourceUrl, value: object["value"] as? String)
+                completionHandler("null")
+            default:
+                completionHandler(nil)
+            }
         }
 
         private func handleJavaScriptPrompt(_ payload: String?, completionHandler: @escaping @MainActor @Sendable (String?) -> Void) {

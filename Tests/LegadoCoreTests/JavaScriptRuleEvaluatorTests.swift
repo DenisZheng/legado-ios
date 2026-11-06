@@ -647,6 +647,73 @@ struct JavaScriptRuleEvaluatorTests {
         #expect(second.value.stringValue == "persisted")
     }
 
+    @Test func sourceVariableAliasesPreserveStringsAndClearNull() throws {
+        let source = BookSource(bookSourceUrl: "https://source-variable.test/\(UUID().uuidString)", bookSourceName: "变量源")
+        defer { BookSourceRuntimeStore.shared.setVariable(sourceID: source.id, value: nil) }
+        let evaluator = JavaScriptRuleEvaluator()
+        let value = try evaluator.evaluate(script: """
+            var values = [source.getVariable()];
+            values.push(typeof source.setVariable('null'), source.getVariable());
+            values.push(typeof source.putVariable(42), source.getVariable());
+            source.setVariable(null);
+            values.push(source.getVariable());
+            source.putVariable('');
+            values.push(source.getVariable(), cache.get('sourceVariable_' + source.getKey()));
+            source.putVariable(null);
+            values.push(cache.get('sourceVariable_' + source.getKey()));
+            values;
+            """, result: .null, executionContext: .init(source: source))
+
+        #expect(value.value == .array([
+            .string(""), .string("undefined"), .string("null"),
+            .string("undefined"), .string("42"), .string(""),
+            .string(""), .string(""), .null
+        ]))
+    }
+
+    @Test func sourceVariableSurvivesEvaluationWithoutReplacingKeyValueScopes() throws {
+        let source = BookSource(bookSourceUrl: "https://source-variable-scope.test/\(UUID().uuidString)", bookSourceName: "变量源")
+        let other = BookSource(bookSourceUrl: source.id + "/other", bookSourceName: "另一源")
+        defer {
+            BookSourceRuntimeStore.shared.setVariable(sourceID: source.id, value: nil)
+            BookSourceRuntimeStore.shared.put(sourceID: source.id, key: "variable", value: "")
+        }
+        _ = try JavaScriptRuleEvaluator().evaluate(
+            script: "source.put('variable', '键值'); source.setVariable('整段变量');",
+            result: .null, executionContext: .init(source: source)
+        )
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: "[source.getVariable(), source.get('variable'), java.get('variable')]",
+            result: .null, executionContext: .init(variables: ["variable": "规则变量"], source: source)
+        )
+        #expect(value.value == .array([.string("整段变量"), .string("键值"), .string("规则变量")]))
+        let isolated = try JavaScriptRuleEvaluator().evaluate(
+            script: "source.getVariable()", result: .null, executionContext: .init(source: other)
+        )
+        #expect(isolated.value == .string(""))
+    }
+
+    @Test func sourceVariableRestoresFromPersistentCacheAndNullRemovesTheEntry() throws {
+        let suite = "source-variable-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let cache = JavaScriptRuleCache(defaults: defaults)
+        let store = BookSourceRuntimeStore(sourceVariableCache: cache)
+        let sourceID = "https://persistent-source.test"
+        store.setVariable(sourceID: sourceID, value: #"{"分类":"新闻"}"#)
+
+        // 新缓存实例没有前一次求值的内存条目，必须读回持久值。
+        let restored = BookSourceRuntimeStore(sourceVariableCache: JavaScriptRuleCache(defaults: defaults))
+        #expect(restored.getVariable(sourceID: sourceID) == #"{"分类":"新闻"}"#)
+        #expect(restored.getVariable(sourceID: sourceID + "/other") == "")
+        store.setVariable(sourceID: sourceID, value: "")
+        #expect(cache.get("sourceVariable_" + sourceID, onlyDisk: true) == "")
+        store.setVariable(sourceID: sourceID, value: nil)
+        #expect(cache.get("sourceVariable_" + sourceID, onlyDisk: true) == nil)
+        let afterClear = BookSourceRuntimeStore(sourceVariableCache: JavaScriptRuleCache(defaults: defaults))
+        #expect(afterClear.getVariable(sourceID: sourceID) == "")
+    }
+
     @Test func resolvesDynamicLenientAndLoginHeadersByPriority() throws {
         var source = BookSource(bookSourceUrl: "https://header-source.test", bookSourceName: "Header源")
         source.header = #"@js:"{'X-Static':'base','X-Dynamic':'js'}""#

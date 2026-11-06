@@ -3,6 +3,28 @@ import Testing
 @testable import LegadoCore
 
 struct RSSRegressionTests {
+    @Test func dynamicSortsUseSourceVariableUpdatesAcrossEvaluations() async throws {
+        var source = RssSource(sourceUrl: "https://rss-variable.test/\(UUID().uuidString)", sourceName: "动态分类")
+        source.sortUrl = "@js:source.getVariable() || '默认::/default'"
+        defer { BookSourceRuntimeStore.shared.setVariable(sourceID: source.sourceUrl, value: nil) }
+        #expect(await RSSSortResolver().resolve(source) == [.init(name: "默认", url: "/default")])
+
+        _ = try await JavaScriptRuleEvaluator().evaluateAsync(
+            script: "source.putVariable('新闻::/news&&科技::/tech');",
+            result: .null, executionContext: .init(source: source.bookSourceAdapter)
+        )
+        #expect(await RSSSortResolver().resolve(source) == [
+            .init(name: "新闻", url: "/news"), .init(name: "科技", url: "/tech")
+        ])
+        _ = try await JavaScriptRuleEvaluator().evaluateAsync(
+            script: "source.setVariable('更新::/updated');",
+            result: .null, executionContext: .init(source: source.bookSourceAdapter)
+        )
+        #expect(await RSSSortResolver().resolve(source) == [.init(name: "更新", url: "/updated")])
+        BookSourceRuntimeStore.shared.setVariable(sourceID: source.sourceUrl, value: nil)
+        #expect(await RSSSortResolver().resolve(source) == [.init(name: "默认", url: "/default")])
+    }
+
     @Test func publicRealWorldRSSManifestAndFixturesRemainImportable() throws {
         let manifestURL = try #require(Bundle.module.url(
             forResource: "sources",

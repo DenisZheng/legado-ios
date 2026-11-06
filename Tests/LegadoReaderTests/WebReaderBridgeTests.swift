@@ -56,15 +56,14 @@ final class WebReaderBridgeTests: XCTestCase {
     }
 
     func testPageJavaScriptCanStoreVariablesAndEvaluateContentRules() async throws {
-        let source = RssSource(sourceUrl: "https://bridge-regression.test/\(UUID().uuidString)", sourceName: "测试")
+        var source = RssSource(sourceUrl: "https://bridge-regression.test/\(UUID().uuidString)", sourceName: "测试")
+        source.preloadJs = "window.rssBridgeReady = true;"
         let loaded = expectation(description: "HTML loaded")
         let surface = RSSWebReaderView(mode: .html(content: "<p>页面正文</p>", baseURL: source.sourceUrl), source: source,
                                        onTextChange: { _ in loaded.fulfill() })
         let coordinator = surface.makeCoordinator()
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        configuration.userContentController.add(coordinator, name: "legado")
-        configuration.userContentController.addUserScript(.init(source: coordinator.bridgeScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: configuration)
         webView.navigationDelegate = coordinator
         webView.uiDelegate = coordinator
@@ -74,9 +73,11 @@ final class WebReaderBridgeTests: XCTestCase {
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
+            BookSourceRuntimeStore.shared.setVariable(sourceID: source.sourceUrl, value: nil)
             RSSWebReaderView.dismantleUIView(webView, coordinator: coordinator)
             window.isHidden = true
         }
+        coordinator.configureScripts(for: surface.mode, in: webView)
         coordinator.installRulesAndLoad(mode: surface.mode, in: webView)
         await fulfillment(of: [loaded], timeout: 20)
 
@@ -86,6 +87,42 @@ final class WebReaderBridgeTests: XCTestCase {
             [java.get('key'), java.getString('tag.p@text')].join('|');
             """)
         XCTAssertEqual(result as? String, "已保存|规则正文")
+
+        let pageValue = try await webView.evaluateJavaScript("""
+            const initial = source.getVariable();
+            const returned = source.setVariable('{"分类":"页面设置"}');
+            [initial, typeof returned, java.getSource().getVariable()].join('|');
+            """)
+        XCTAssertEqual(pageValue as? String, "|undefined|{\"分类\":\"页面设置\"}")
+        let nativeValue = try await JavaScriptRuleEvaluator().evaluateAsync(
+            script: "source.getVariable()", result: .null, executionContext: .init(source: source.bookSourceAdapter)
+        )
+        XCTAssertEqual(nativeValue.value.stringValue, #"{"分类":"页面设置"}"#)
+        _ = try await JavaScriptRuleEvaluator().evaluateAsync(
+            script: "source.putVariable('规则设置');", result: .null, executionContext: .init(source: source.bookSourceAdapter)
+        )
+        let updated = try await webView.evaluateJavaScript("source.getVariable()")
+        XCTAssertEqual(updated as? String, "规则设置")
+        let cleared = try await webView.evaluateJavaScript("source.putVariable(null); [source.getVariable(), java.get('key')].join('|')")
+        XCTAssertEqual(cleared as? String, "|已保存")
+        XCTAssertEqual(BookSourceRuntimeStore.shared.getVariable(sourceID: source.sourceUrl), "")
+    }
+
+    func testSourceVariableBridgeRequiresPreloadAndIsExcludedFromRemotePages() {
+        var source = RssSource(sourceUrl: "https://bridge-policy.test", sourceName: "测试")
+        let mode = RSSReadingMode.html(content: "<p>正文</p>", baseURL: source.sourceUrl)
+        let surface = RSSWebReaderView(mode: mode, source: source)
+        let coordinator = surface.makeCoordinator()
+        let webView = WKWebView()
+        defer { RSSWebReaderView.dismantleUIView(webView, coordinator: coordinator) }
+        coordinator.configureScripts(for: mode, in: webView)
+        XCTAssertTrue(webView.configuration.userContentController.userScripts.isEmpty)
+        source.preloadJs = "window.rssBridgeReady = true;"
+        coordinator.update(source: source)
+        coordinator.configureScripts(for: mode, in: webView)
+        XCTAssertFalse(webView.configuration.userContentController.userScripts.isEmpty)
+        coordinator.configureScripts(for: .web(url: source.sourceUrl), in: webView)
+        XCTAssertTrue(webView.configuration.userContentController.userScripts.isEmpty)
     }
 }
 

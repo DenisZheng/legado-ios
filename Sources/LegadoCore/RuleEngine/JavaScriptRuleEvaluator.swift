@@ -1137,6 +1137,13 @@ public struct JavaScriptRuleEvaluator: Sendable {
             BookSourceRuntimeStore.shared.put(sourceID: sourceID, key: key, value: text)
             return text
         }
+        let getVariable: @convention(block) () -> String = {
+            BookSourceRuntimeStore.shared.getVariable(sourceID: sourceID)
+        }
+        let setVariable: @convention(block) (Any?) -> Void = { value in
+            let text = value == nil || value is NSNull ? nil : Self.stringify(value)
+            BookSourceRuntimeStore.shared.setVariable(sourceID: sourceID, value: text)
+        }
         let getLoginHeader: @convention(block) () -> Any? = {
             let value = BookSourceRuntimeStore.shared.get(sourceID: sourceID, key: "loginHeader")
             return value.isEmpty ? nil : value
@@ -1172,6 +1179,8 @@ public struct JavaScriptRuleEvaluator: Sendable {
         }
         object?.setObject(get, forKeyedSubscript: "get" as NSString)
         object?.setObject(put, forKeyedSubscript: "put" as NSString)
+        object?.setObject(getVariable, forKeyedSubscript: "getVariable" as NSString)
+        object?.setObject(setVariable, forKeyedSubscript: "__setVariable" as NSString)
         object?.setObject(getLoginHeader, forKeyedSubscript: "getLoginHeader" as NSString)
         object?.setObject(putLoginHeader, forKeyedSubscript: "putLoginHeader" as NSString)
         object?.setObject(getLoginInfo, forKeyedSubscript: "__getLoginInfoMap" as NSString)
@@ -1196,6 +1205,10 @@ public struct JavaScriptRuleEvaluator: Sendable {
             (function () {
               source.getKey = function () { return source.bookSourceUrl; };
               source.getTag = function () { return source.bookSourceName; };
+              source.setVariable = function (value) {
+                source.__setVariable(value == null ? null : String(value));
+              };
+              source.putVariable = source.setVariable;
               source.getLoginInfoMap = function () {
                 var map = source.__getLoginInfoMap() || {};
                 map.get = function (key) { return map[String(key)]; };
@@ -1872,6 +1885,23 @@ public final class BookSourceRuntimeStore: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String: [String: String]] = [:]
     private let persistent = PersistentRuntimeCache.shared
+    private let sourceVariableCache: JavaScriptRuleCache
+
+    init(sourceVariableCache: JavaScriptRuleCache = .shared) {
+        self.sourceVariableCache = sourceVariableCache
+    }
+
+    // Android BaseSource 的整段源变量存入 CacheManager，独立于 get/put 的 v_ 命名空间。
+    // 复用 JS 缓存也让 cache.get("sourceVariable_" + source.getKey()) 读取同一份数据。
+    public func getVariable(sourceID: String) -> String {
+        sourceVariableCache.get("sourceVariable_\(sourceID)") ?? ""
+    }
+
+    public func setVariable(sourceID: String, value: String?) {
+        let key = "sourceVariable_\(sourceID)"
+        if let value { sourceVariableCache.put(key, value: value) }
+        else { sourceVariableCache.delete(key) }
+    }
 
     public func get(sourceID: String, key: String) -> String {
         lock.lock()
