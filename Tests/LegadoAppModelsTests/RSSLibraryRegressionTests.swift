@@ -28,9 +28,9 @@ struct RSSLibraryRegressionTests {
         await model.importFiles([fileURL])
 
         #expect(model.errorMessage == nil)
-        #expect(model.sources.map(\\.sourceName) == ["本地文件 RSS 测试"])
+        #expect(model.sources.map(\.sourceName) == ["本地文件 RSS 测试"])
         #expect(model.successMessage?.contains("新增 1 个") == true)
-        #expect(try await database.loadRssSources().map(\\.sourceUrl) == ["https://local-rss-import.test/feed"])
+        #expect(try await database.loadRssSources().map(\.sourceUrl) == ["https://local-rss-import.test/feed"])
     }
 
     @Test func explicitContentRefreshReplacesTheExistingDescription() async throws {
