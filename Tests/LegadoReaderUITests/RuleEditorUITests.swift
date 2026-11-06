@@ -87,18 +87,31 @@ final class RuleEditorUITests: XCTestCase {
             let browse = app.buttons.matching(
                 NSPredicate(format: "label IN %@", ["Browse", "浏览", "Locations", "位置"])
             ).firstMatch
-            if browse.exists { browse.tap() }
-            if !fixtures.waitForExistence(timeout: 2) {
-                let local = app.descendants(matching: .any).matching(NSPredicate(
-                    format: "label CONTAINS %@ OR label CONTAINS %@ OR label == %@",
-                    "我的 iPhone", "我的iPhone", "On My iPhone"
-                )).firstMatch
-                XCTAssertTrue(local.waitForExistence(timeout: 5), app.debugDescription)
-                local.tap()
+            let local = app.descendants(matching: .any).matching(NSPredicate(
+                format: "label CONTAINS %@ OR label CONTAINS %@ OR label == %@",
+                "我的 iPhone", "我的iPhone", "On My iPhone"
+            )).firstMatch
+            // 冷启动时 Files 的导航控件可能晚于 sheet 出现。先等待可操作状态，
+            // 避免一次 exists == false 就跳过 Browse，随后在 Recents 里寻找本地目录。
+            let ready = expectation(for: NSPredicate { _, _ in
+                rssFile.exists || fixtures.exists || local.exists || (browse.exists && browse.isHittable)
+            }, evaluatedWith: nil)
+            wait(for: [ready], timeout: 20)
+            if !rssFile.exists {
+                if !fixtures.exists {
+                    if !local.exists {
+                        XCTAssertTrue(browse.exists, app.debugDescription)
+                        browse.tap()
+                    }
+                    if !fixtures.waitForExistence(timeout: 2) {
+                        XCTAssertTrue(local.waitForExistence(timeout: 5), app.debugDescription)
+                        local.tap()
+                    }
+                }
+                XCTAssertTrue(fixtures.waitForExistence(timeout: 10),
+                              "Run scripts/prepare-source-import-fixture.sh for the simulator")
+                fixtures.tap()
             }
-            XCTAssertTrue(fixtures.waitForExistence(timeout: 10),
-                          "Run scripts/prepare-source-import-fixture.sh for the simulator")
-            fixtures.tap()
         }
 
         XCTAssertTrue(rssFile.waitForExistence(timeout: 10), app.debugDescription)
