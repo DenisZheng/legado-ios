@@ -47,18 +47,29 @@ struct SyntaxCodeEditor: UIViewRepresentable {
         let bar = UIToolbar()
         bar.tintColor = UIColor(ReadingTheme.accent)
         bar.sizeToFit()
-        bar.items = [
+        let navigationItems: [UIBarButtonItem] = [
             UIBarButtonItem(image: UIImage(systemName: "magnifyingglass"), primaryAction: UIAction(title: "", subtitle: nil) { [weak view, coordinator = context.coordinator] _ in
                 guard let view else { return }
                 if #available(iOS 16.0, *) { view.findInteraction?.presentFindNavigator(showingReplace: true) }
                 else { coordinator.presentFindAndReplace(in: view) }
             }),
             UIBarButtonItem(image: UIImage(systemName: "arrow.uturn.backward"), primaryAction: UIAction(title: "", subtitle: nil) { [weak view] _ in view?.undoManager?.undo() }),
-            UIBarButtonItem(image: UIImage(systemName: "arrow.uturn.forward"), primaryAction: UIAction(title: "", subtitle: nil) { [weak view] _ in view?.undoManager?.redo() }),
-        ] + ["@", "$", "{}", "[]", "##", "\n", "\t"].map { symbol in
-            UIBarButtonItem(title: symbol == "\n" ? "↵" : symbol == "\t" ? "⇥" : symbol,
-                primaryAction: UIAction(title: "", subtitle: nil) { [weak view] _ in view?.insertText(symbol) })
-        } + [UIBarButtonItem(systemItem: .flexibleSpace), UIBarButtonItem(title: "完成", primaryAction: UIAction(title: "", subtitle: nil) { [weak view] _ in view?.resignFirstResponder() })]
+            UIBarButtonItem(image: UIImage(systemName: "arrow.uturn.forward"), primaryAction: UIAction(title: "", subtitle: nil) { [weak view] _ in view?.undoManager?.redo() })
+        ]
+        let symbols = ["@", "$", "{}", "[]", "##", "\n", "\t"]
+        let symbolItems: [UIBarButtonItem] = symbols.map { symbol in
+            let title = symbol == "\n" ? "↵" : (symbol == "\t" ? "⇥" : symbol)
+            return UIBarButtonItem(title: title, primaryAction: UIAction(title: "", subtitle: nil) { [weak view] _ in
+                view?.insertText(symbol)
+            })
+        }
+        let trailingItems: [UIBarButtonItem] = [
+            UIBarButtonItem(systemItem: .flexibleSpace),
+            UIBarButtonItem(title: "完成", primaryAction: UIAction(title: "", subtitle: nil) { [weak view] _ in
+                view?.resignFirstResponder()
+            })
+        ]
+        bar.items = navigationItems + symbolItems + trailingItems
         bar.items?.last?.accessibilityIdentifier = "syntaxCodeEditor.done"
         if #available(iOS 26.0, *) {
             view.inputAccessoryView = CodeInputAccessory(items: bar.items ?? [])
