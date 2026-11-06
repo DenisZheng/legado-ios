@@ -129,7 +129,7 @@ jobs:
             test
 
       - name: Run RSS WebView bridge tests
-        if: inputs.mode != 'build'
+        if: ${{ !cancelled() && inputs.mode != 'build' && steps.rss-tests.outcome != 'skipped' }}
         run: |
           DEVICE_ID="$(cat "$RUNNER_TEMP/rss-test-device.txt")"
           xcodebuild \

@@ -42,5 +42,4 @@ xcrun --sdk iphonesimulator swiftc -parse-as-library -swift-version 6 \
     -o "$legado_fixture_app/SourceImportFixtures"
 python3 "$legado_fixture_repo/scripts/fixtures/make-epub.py" "$legado_fixture_app/EPUB-Book.epub"
 xcrun simctl install "$legado_fixture_device" "$legado_fixture_app"
-xcrun simctl launch --terminate-running-process "$legado_fixture_device" com.epiboly.legado.source-import-fixtures
-python3 "$legado_fixture_repo/scripts/fixtures/stage-source-import-files.py" "$legado_fixture_device"
+printf 'Installed source import fixture app. UI tests export samples through the system Files picker.\n'
