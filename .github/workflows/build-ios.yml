@@ -58,6 +58,7 @@ jobs:
 
           DEVICE_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
           test -n "$DEVICE_ID"
+          sh scripts/prepare-source-import-fixture.sh "$DEVICE_ID"
 
           xcodebuild \
             -project Legado.xcodeproj \
