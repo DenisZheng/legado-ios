@@ -924,6 +924,40 @@ public struct JavaScriptRuleEvaluator: Sendable {
                 raw.toString = function () { return raw.href; };
                 return raw;
               };
+              java.createSymmetricCrypto = function (transformation, key, iv) {
+                var parts = String(transformation || '').toUpperCase().split('/');
+                if (parts.length !== 3 || parts[0] !== 'AES' || parts[1] !== 'CBC' ||
+                    (parts[2] !== 'PKCS5PADDING' && parts[2] !== 'PKCS7PADDING')) {
+                  throw new Error('Unsupported iOS symmetric transformation: ' + transformation +
+                    ' (supported: AES/CBC/PKCS5Padding and AES/CBC/PKCS7Padding)');
+                }
+                var keyBytes = typeof key === 'string' ? java.strToBytes(key) : key;
+                var ivBytes = typeof iv === 'string' ? java.strToBytes(iv) : iv;
+                if (!keyBytes || !ivBytes) throw new Error('AES/CBC requires key and IV bytes');
+                function inputBytes(data, decrypting) {
+                  if (Array.isArray(data)) return data;
+                  if (typeof data !== 'string') throw new Error('Crypto data must be a string or byte array');
+                  if (!decrypting) return java.strToBytes(data);
+                  if (/^(0x)?[0-9a-f]+$/i.test(data) && data.replace(/^0x/i, '').length % 2 === 0) {
+                    return java.hexDecodeToByteArray(data.replace(/^0x/i, ''));
+                  }
+                  return java.base64DecodeToByteArray(data);
+                }
+                function crypt(operation, data) {
+                  var output = java.__legadoAESCBC(operation, keyBytes, ivBytes, inputBytes(data, operation === 2));
+                  if (output == null) throw new Error('AES/CBC operation failed; check key, IV, padding and data encoding');
+                  return output;
+                }
+                return {
+                  encrypt: function (data) { return crypt(1, data); },
+                  decrypt: function (data) { return crypt(2, data); },
+                  decryptStr: function (data) { return java.bytesToStr(crypt(2, data)); },
+                  encryptBase64: function (data) { return __legadoBase64EncodeBytes(crypt(1, data)); },
+                  encryptHex: function (data) { return crypt(1, data).map(function (value) {
+                    return ('0' + (value & 255).toString(16)).slice(-2);
+                  }).join(''); }
+                };
+              };
               java.getHeaderMap = function () {
                 var map = typeof source === 'undefined' ? {} : source.getHeaderMap(true);
                 map.put = function (key, value) { map[String(key)] = String(value); return value; };
