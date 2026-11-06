@@ -270,6 +270,51 @@ struct JavaScriptRuleEvaluatorTests {
         #expect(value.value.stringValue == "rss.example.test|https://rss.example.test|/feed/list|2|中文|https://rss.example.test/feed/list?page=2&keyword=%E4%B8%AD%E6%96%87|https://rss.example.test/feed/list?page=2&keyword=%E4%B8%AD%E6%96%87")
     }
 
+    @Test func exposesAndroidCacheGlobalMemoryPersistentAndFileAPIs() throws {
+        let suffix = UUID().uuidString
+        let persistentKey = "rss-test-persistent-" + suffix
+        let memoryKey = "rss-test-memory-" + suffix
+        let fileKey = "rss-test-file-" + suffix
+        defer {
+            JavaScriptRuleCache.shared.delete(persistentKey)
+            JavaScriptRuleCache.shared.delete(memoryKey)
+            JavaScriptRuleCache.shared.delete(fileKey)
+        }
+
+        let evaluator = JavaScriptRuleEvaluator()
+        let value = try evaluator.evaluate(
+            script: """
+                cache.put('\(persistentKey)', 'persistent-value');
+                cache.putMemory('\(memoryKey)', 'memory-value');
+                cache.putFile('\(fileKey)', 'file-value');
+                cache.get('\(persistentKey)') + '|' +
+                  cache.getFromMemory('\(memoryKey)') + '|' +
+                  cache.getFile('\(fileKey)');
+                """,
+            result: .null,
+            executionContext: .init()
+        )
+        #expect(value.value.stringValue == "persistent-value|memory-value|file-value")
+
+        JavaScriptRuleCache.shared.deleteMemory(persistentKey)
+        let diskValue = try evaluator.evaluate(
+            script: "cache.get('\(persistentKey)', true)",
+            result: .null,
+            executionContext: .init()
+        )
+        #expect(diskValue.value.stringValue == "persistent-value")
+
+        let deleted = try evaluator.evaluate(
+            script: """
+                cache.deleteMemory('\(memoryKey)');
+                cache.getFromMemory('\(memoryKey)') === null;
+                """,
+            result: .null,
+            executionContext: .init()
+        )
+        #expect(deleted.value.stringValue == "true")
+    }
+
     @Test func jsonParseKeepsPlainTextResponsesButStillRejectsBrokenJSON() throws {
         let evaluator = JavaScriptRuleEvaluator()
         let plain = try evaluator.evaluate(
