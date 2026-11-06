@@ -42,6 +42,17 @@ struct RSSHomeView: View {
             }
         })
         let sheets = AnyView(actions
+            .sheet(isPresented: $showsFiles) {
+                RSSDocumentPicker(
+                    onPick: { urls in
+                        showsFiles = false
+                        guard !urls.isEmpty else { return }
+                        Task { await library.importFiles(urls) }
+                    },
+                    onCancel: { showsFiles = false }
+                )
+                .ignoresSafeArea()
+            }
             .sheet(isPresented: $showsTextImport) { RSSImportSheet() }
             .sheet(item: $editingStar) { value in
                 RSSStarEditSheet(star: value, save: { updated in
@@ -60,17 +71,6 @@ struct RSSHomeView: View {
                 Button("好") { library.errorMessage = nil; library.successMessage = nil }
             } message: { Text(library.errorMessage ?? library.successMessage ?? "") })
         return status
-            .fileImporter(isPresented: $showsFiles, allowedContentTypes: [.json, .text], allowsMultipleSelection: true) { result in
-                switch result {
-                case .success(let urls):
-                    guard !urls.isEmpty else { return }
-                    // Start security-scoped access while the picker callback is still active.
-                    let files = urls.map { RSSImportFile(url: $0) }
-                    Task { await library.importFiles(files) }
-                case .failure(let error):
-                    library.errorMessage = "选择 RSS 文件失败：\(error.localizedDescription)"
-                }
-            }
             .confirmationDialog(section == 1 ? "确定清空全部RSS收藏？" : "确定清空全部RSS阅读记录？", isPresented: $confirmsClear, titleVisibility: Visibility.visible) {
             Button("清空", role: .destructive) { Task { if section == 1 { await library.clearStars() } else { await library.clearRecords() } } }
             Button("取消", role: .cancel) {}
@@ -649,4 +649,45 @@ private struct RSSStarEditSheet: View {
 
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+
+/// Native document picker. With asCopy enabled, selected Files/iCloud documents are copied
+/// into the app container before the callback, so RSS import never depends on a stale
+/// security-scoped URL after the picker is dismissed.
+private struct RSSDocumentPicker: UIViewControllerRepresentable {
+    let onPick: ([URL]) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick, onCancel: onCancel)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.json, .plainText], asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    @MainActor
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private let onPick: ([URL]) -> Void
+        private let onCancel: () -> Void
+
+        init(onPick: @escaping ([URL]) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onPick(urls)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onCancel()
+        }
+    }
 }
