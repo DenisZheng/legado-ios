@@ -315,6 +315,26 @@ struct JavaScriptRuleEvaluatorTests {
         #expect(deleted.value.stringValue == "true")
     }
 
+    @Test func supportsAndroidCreateSymmetricCryptoAESCBCApi() throws {
+        let value = try JavaScriptRuleEvaluator().evaluate(
+            script: """
+                var cipher = java.createSymmetricCrypto(
+                  'AES/CBC/PKCS5Padding',
+                  '0123456789abcdef',
+                  'abcdef0123456789'
+                );
+                var encrypted = cipher.encryptBase64('Legado RSS');
+                var decrypted = cipher.decryptStr(encrypted);
+                var hex = cipher.encryptHex('video');
+                decrypted + '|' + (cipher.decryptStr(hex) === 'video') + '|' +
+                  (cipher.decrypt(encrypted).length > 0);
+                """,
+            result: .null,
+            executionContext: .init()
+        )
+        #expect(value.value.stringValue == "Legado RSS|true|true")
+    }
+
     @Test func jsonParseKeepsPlainTextResponsesButStillRejectsBrokenJSON() throws {
         let evaluator = JavaScriptRuleEvaluator()
         let plain = try evaluator.evaluate(
