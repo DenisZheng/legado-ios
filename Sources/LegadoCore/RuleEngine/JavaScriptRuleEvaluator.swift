@@ -826,6 +826,23 @@ public struct JavaScriptRuleEvaluator: Sendable {
               };
               java.getSource = function () { return typeof source === 'undefined' ? null : source; };
               java.getWebViewUA = function () { return '\(LegadoURLBuilder.defaultUserAgent)'; };
+              // Android exposes longToast separately from toast. The rule engine has no
+              // foreground UI, so both are routed to the existing diagnostic logger.
+              java.longToast = java.toast;
+              java.toURL = function (rawURL, rawBaseURL) {
+                var base = rawBaseURL == null ? (typeof baseUrl === 'undefined' ? undefined : baseUrl) : String(rawBaseURL);
+                var parsed = base ? new URL(String(rawURL), base) : new URL(String(rawURL));
+                var params = {};
+                parsed.searchParams.forEach(function (value, key) { params[key] = value; });
+                return {
+                  searchParams: params,
+                  host: parsed.host,
+                  origin: parsed.origin,
+                  pathname: parsed.pathname,
+                  href: parsed.href,
+                  toString: function () { return parsed.href; }
+                };
+              };
               java.getHeaderMap = function () {
                 var map = typeof source === 'undefined' ? {} : source.getHeaderMap(true);
                 map.put = function (key, value) { map[String(key)] = String(value); return value; };
