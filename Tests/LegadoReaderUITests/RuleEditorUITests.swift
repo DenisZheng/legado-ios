@@ -67,6 +67,21 @@ final class RuleEditorUITests: XCTestCase {
         XCTAssertTrue(result.waitForExistence(timeout: 5))
     }
 
+    func testRSSIsAvailableAsNormalTabAndCanBeDefaultHomePage() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiDemo", "-defaultHomePage", "rss", "-themeMode", "1"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["RSS"].waitForExistence(timeout: 20))
+        let rssTab = app.tabBars.buttons["RSS"]
+        XCTAssertTrue(rssTab.exists)
+
+        app.tabBars.buttons["书架"].tap()
+        XCTAssertTrue(rssTab.waitForExistence(timeout: 5))
+        rssTab.tap()
+        XCTAssertTrue(app.navigationBars["RSS"].waitForExistence(timeout: 5))
+    }
+
     func testBookshelfFilePickerImportsTXTAndEPUBAndDisablesJSON() throws {
         try exerciseLocalBookImport(fromFileManagement: false)
     }
