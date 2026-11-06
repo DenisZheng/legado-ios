@@ -41,7 +41,9 @@ def inspect_source(source):
         tags.add("default-feed")
     if source.get("ruleArticles"):
         tags.add("custom-rules")
-    if re.search(r"@js:|<js>|\b(?:java|cache|cookie)\s*[.\[]", text):
+    if (any(calls.values())
+            or any(source.get(key) for key in ("injectJs", "preloadJs", "jsLib"))
+            or re.search(r"@js:|<js>|\b(?:java|cache|cookie|source)\s*[.\[]", text)):
         tags.add("js")
     if any(source.get(key) for key in ("loginUrl", "loginUi", "loginCheckJs")):
         tags.add("login")

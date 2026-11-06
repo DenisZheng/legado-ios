@@ -136,7 +136,7 @@ M1 使用可注入时钟和独立 UserDefaults 测试存储，覆盖到期前读
 
 缓存范围边界：本批回归覆盖 `saveTime = 0` 和正整数秒。负数目前在 JS 桥中被归零，而 Android 文本缓存会计算已过去的 deadline；这一差异仍归 P0-01 后续，不因修复永久内存提升问题就宣称全套 cache 参数契约一致。文件缓存和非文本值也需按实际源调用继续核对。
 
-集合定位补充：最初只找到 Android `app/src/main/assets/defaultData/rssSources.json` 的 4 条内置源；用户随后提供完整 307 源。原文件保留根目录，通过本地 `.git/info/exclude` 排除，清单与结果放在已忽略的 `artifacts/rss-compat/20261106-inventory/`。
+集合定位补充：最初只找到 Android `app/src/main/assets/defaultData/rssSources.json` 的 4 条内置源；用户随后提供完整 307 源。原文件保留根目录，通过本地 `.git/info/exclude` 排除，当前清单与结果放在已忽略的 `artifacts/rss-compat/20261106-inventory-v2/`，初版清单也保留。第二版修正 `source.*` 和 JS 字段的能力标签，避免将只用源变量的规则误选为无 JS 对照组。
 
 M1 验证补充：`1555ea3` 的 [运行 42212284372](https://github.com/DenisZheng/legado-ios/actions/runs/42212284372) 中 391 项核心测试通过；RSS UI 有 1 项失败，另 2 项通过。失败发生在 Files 冷启动后未点击 Browse 就查找 On My iPhone，尚未选中文件。随后修正该测试的就绪状态等待与目录导航，保留最终导入断言；完整 CI 仍须验证后续修复提交。
 

@@ -114,7 +114,7 @@ RSS UI 本地服务、Files 夹具和完整验证见 [开发指南](DEVELOPMENT.
 
 输入：根目录 `rssSources-valid (1).json`，1,674,112 字节；SHA-256：`0e30301c85fb511961be7542212ee63b8d4173a9b6c33bb5a4f88eb6d3795f45`。JSON 解码有效，307 条对象、307 个唯一且非空的 `sourceUrl`，没有静默去重。原文件已加入本地 Git 排除规则，不进入提交。
 
-本地输出位于 `artifacts/rss-compat/20261106-inventory/`：`manifest.json` 固定输入与两仓库提交，`source-index.json` 保存本地源身份及能力标签，`results.csv` 为 307 × 8 = 2456 条阶段记录，全部 `NOT_RUN`。本次不联网、不执行源 JS，因此 JSON 结构有效不等同 iOS 导入成功。
+当前本地输出位于 `artifacts/rss-compat/20261106-inventory-v2/`：`manifest.json` 固定输入与两仓库提交，`source-index.json` 保存本地源身份及能力标签，`results.csv` 为 307 × 8 = 2456 条阶段记录，全部 `NOT_RUN`。本次不联网、不执行源 JS，因此 JSON 结构有效不等同 iOS 导入成功。初版 `20261106-inventory/` 保留；第二版修正仅调用 `source.*` 或只提供 JS 字段时漏标 `js` 的问题，JS 标签源数为 132，不能把这类源选入无 JS 对照组。
 
 | 结构/能力 | 源数 | 验证意义 |
 | --- | ---: | --- |
@@ -144,7 +144,7 @@ RSS UI 本地服务、Files 夹具和完整验证见 [开发指南](DEVELOPMENT.
 可复现入口（输出目录必须为新目录，避免覆盖结果）：
 
 ```sh
-python scripts/inventory-rss-sources.py "rssSources-valid (1).json" --output artifacts/rss-compat/20261106-inventory-repeat --ios-commit ce9e857d8c5b4b110d4c9f534863a020fbb69641 --android-commit 330e606c4d57e08adc056ff8ab7a4132c784da9a
+python scripts/inventory-rss-sources.py "rssSources-valid (1).json" --output artifacts/rss-compat/20261106-inventory-repeat --ios-commit 4edf2b9b893e9ffff2b9884595a9762edff96ce6 --android-commit 330e606c4d57e08adc056ff8ab7a4132c784da9a
 ```
 
 下一轮代表源按以下顺序挑选：默认 feed → 无 JS 的自定义列表 → 源自定义变量/动态分类 → Header/Cookie → 登录/验证码 → 页面桥/媒体。当前 `source-index.json` 的标签为启发式分类，选择后仍须检查原始规则及前置条件。
