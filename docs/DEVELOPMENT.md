@@ -68,6 +68,8 @@ Files 冷启动时，文件选择器 sheet 和导航控件可能分批出现在�
 
 ## 兼容性验证
 
+RSS 和书源现在共用 `SourceFileImportPicker`/`SourceImportFile`：选择器使用 `.item` 与副本模式，delegate 回调中取得访问权限并持有到后台协调读取完成。两个页面都等待文件返回与 sheet 关闭后再继续，避免文件访问或后续弹窗依赖回调先后顺序。RSS 使用自身的格式校验和文件夹错误。`LegadoRSSFlowUITests` 除三个 RSS 用例外，也执行书源 JSON 多选导入；两者共用 Files 就绪导航，RSS 同样检查取消后重开。
+
 RSS 的 Android 基准、P0～P3 任务依赖与验收标准见 [RSS 兼容实施计划](RSS_COMPATIBILITY_PLAN.md)，能力场景及真实源逐阶段记录规范见 [RSS 兼容验证矩阵](RSS_COMPATIBILITY_MATRIX.md)。实现状态和实测结果分别维护。
 
 最低部署版本为 iOS 15.0。`App/Compatibility.swift` 为导航、分享、照片选择和弹窗提供兼容实现；新增系统 API 时需保留最低版本路径。调试构建可用 `-uiLegacyCompatibility` 启动参数在新系统上执行旧版界面分支，对应回归位于 `Tests/LegadoReaderUITests/`。这些测试不能替代 iOS 15 真机或模拟器实测。

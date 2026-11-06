@@ -17,13 +17,13 @@ final class SourceImportFile: @unchecked Sendable {
         if hasSecurityScope { url.stopAccessingSecurityScopedResource() }
     }
 
-    func read() throws -> Data {
+    func read(notAFileError: any Error = BookSourceImportError.invalidDocument("请选择书源 JSON 文件，而不是文件夹。")) throws -> Data {
         var coordinationError: NSError?
         var result: Result<Data, Error>?
         NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readableURL in
             result = Result {
                 guard try readableURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory != true else {
-                    throw BookSourceImportError.invalidDocument("请选择书源 JSON 文件，而不是文件夹。")
+                    throw notAFileError
                 }
                 return try Data(contentsOf: readableURL)
             }

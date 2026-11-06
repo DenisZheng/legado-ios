@@ -47,7 +47,7 @@
 
 | ID | 任务与当前状态 | 实施范围 | 验收条件 |
 | --- | --- | --- | --- |
-| P0-01 | cache 基础已有，TTL 有明确差异 | 修复持久条目读取后丢失期限；保留 `onlyDisk` 和显式 `putMemory` 语义 | 限时条目过期后不再返回旧值；不限时可走内存；覆盖覆盖写入和跨次 JS 求值 |
+| P0-01 | cache 基础已有，TTL 有明确差异 | 修复持久条目读取后丢失期限；保留 `onlyDisk` 和显式 `putMemory` 语义 | 限时条目过期后不再返回旧值；不限时可走内存；覆盖写入和跨次 JS 求值有回归 |
 | P0-02 | 分析器部分兼容；规则侧缺 `setRedirectUrl` | 对齐参数、链式返回、URL/null、基准地址与重定向地址的区别；页面侧同步核查 | 链接按重定向地址解析；空正文返回/无效地址行为对齐；不改变既有变量和结果快照 |
 | P0-03 | HTTP 重载、页面网络桥已接通，返回契约待完善 | 区分规则 Response 与页面字符串；Header 支持对象/JSON；超时、错误、禁重定向、JS 状态连续性 | 同一合成请求在两个上下文分别得到基准规定的类型、头、状态和正文；错误不会伪装为正常正文 |
 | P0-04 | 静态/动态 Header、URL/bodyJs 已有 | 补登录页动态 Header 路径；对照合并优先级、charset、POST/bodyJs、变量及最终地址 | 请求捕获断言方法、字节和 Header；重定向/编码组合有确定回归；`webViewDelayTime` 正确生效 |
@@ -136,6 +136,8 @@ M1 使用可注入时钟和独立 UserDefaults 测试存储，覆盖到期前读
 M1 验证补充：`1555ea3` 的 [运行 42212284372](https://github.com/DenisZheng/legado-ios/actions/runs/42212284372) 中 391 项核心测试通过；RSS UI 有 1 项失败，另 2 项通过。失败发生在 Files 冷启动后未点击 Browse 就查找 On My iPhone，尚未选中文件。随后修正该测试的就绪状态等待与目录导航，保留最终导入断言；完整 CI 仍须验证后续修复提交。
 
 `3db20c6` 的 [运行 42214902416](https://github.com/DenisZheng/legado-ios/actions/runs/42214902416) 已通过导航，但在 Open 后复现系统文件 ID 无法解析（`NSFileProviderErrorDomain -1005`），返回空文件列表。后续 CI 改为相同机型/runtime 的全新专用模拟器，隔离预置设备的文件索引状态，继续运行原有导入断言。该环境问题与缓存回归分别记录，不能把一次绿色运行当成根因证明。
+
+本地文件链路补充：对照现有书源实现后，RSS 改为复用 `SourceFileImportPicker` 和 `SourceImportFile`：选择 `.item` 副本、回调时持有访问权限、通过 `NSFileCoordinator` 后台读取；文件返回和 sheet 关闭都完成后才启动导入。RSS 保留自身 JSON 解码、错误文案和持久化逻辑。原先仅凭 `asCopy: true` 就直接异步读取 URL 的实现未覆盖书源已有的完整时序。新增多文件/混合扩展名和失败不部分入库回归，RSS UI 增加取消后重开；RSS CI Scheme 同时加入现有书源 JSON 文件导入用例，以验证共享组件。此变更须由后续提交的 CI 验证，不能引用旧运行证明。
 
 ## 平台资料
 

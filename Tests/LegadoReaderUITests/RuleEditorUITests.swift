@@ -77,13 +77,43 @@ final class RuleEditorUITests: XCTestCase {
         app.buttons["RSS操作"].tap()
         app.buttons["导入文件"].tap()
 
+        let cancel = app.buttons.matching(
+            NSPredicate(format: "label IN %@", ["Cancel", "取消"])
+        ).firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 20))
+        cancel.tap()
+        let pickerClosed = expectation(for: NSPredicate { _, _ in
+            !cancel.exists && app.buttons["RSS操作"].isHittable
+        }, evaluatedWith: nil)
+        wait(for: [pickerClosed], timeout: 10)
+        app.buttons["RSS操作"].tap()
+        app.buttons["导入文件"].tap()
+
         let rssFile = app.descendants(matching: .any).matching(
             NSPredicate(format: "label BEGINSWITH %@", "RSS-Source")
         ).firstMatch
+        openSourceImportFixture(in: app, targetFile: rssFile)
+        rssFile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let open = app.buttons.matching(
+            NSPredicate(format: "label IN %@", ["Open", "打开", "Import", "导入"])
+        ).firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(open.isEnabled, app.debugDescription)
+        open.tap()
+
+        let imported = app.staticTexts["本地 RSS 文件导入测试"]
+        XCTAssertTrue(imported.waitForExistence(timeout: 15), app.debugDescription)
+        let success = app.alerts["RSS导入完成"]
+        XCTAssertTrue(success.waitForExistence(timeout: 5), app.debugDescription)
+        success.buttons["好"].tap()
+        XCTAssertTrue(imported.exists)
+    }
+
+    private func openSourceImportFixture(in app: XCUIApplication, targetFile: XCUIElement) {
         let fixtures = app.descendants(matching: .any).matching(
             NSPredicate(format: "label BEGINSWITH %@", "书源导入测试")
         ).firstMatch
-        if !rssFile.waitForExistence(timeout: 3) {
+        if !targetFile.waitForExistence(timeout: 3) {
             let browse = app.buttons.matching(
                 NSPredicate(format: "label IN %@", ["Browse", "浏览", "Locations", "位置"])
             ).firstMatch
@@ -94,10 +124,10 @@ final class RuleEditorUITests: XCTestCase {
             // 冷启动时 Files 的导航控件可能晚于 sheet 出现。先等待可操作状态，
             // 避免一次 exists == false 就跳过 Browse，随后在 Recents 里寻找本地目录。
             let ready = expectation(for: NSPredicate { _, _ in
-                rssFile.exists || fixtures.exists || local.exists || (browse.exists && browse.isHittable)
+                targetFile.exists || fixtures.exists || local.exists || (browse.exists && browse.isHittable)
             }, evaluatedWith: nil)
             wait(for: [ready], timeout: 20)
-            if !rssFile.exists {
+            if !targetFile.exists {
                 if !fixtures.exists {
                     if !local.exists {
                         XCTAssertTrue(browse.exists, app.debugDescription)
@@ -114,21 +144,7 @@ final class RuleEditorUITests: XCTestCase {
             }
         }
 
-        XCTAssertTrue(rssFile.waitForExistence(timeout: 10), app.debugDescription)
-        rssFile.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        let open = app.buttons.matching(
-            NSPredicate(format: "label IN %@", ["Open", "打开", "Import", "导入"])
-        ).firstMatch
-        XCTAssertTrue(open.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(open.isEnabled, app.debugDescription)
-        open.tap()
-
-        let imported = app.staticTexts["本地 RSS 文件导入测试"]
-        XCTAssertTrue(imported.waitForExistence(timeout: 15), app.debugDescription)
-        let success = app.alerts["RSS导入完成"]
-        XCTAssertTrue(success.waitForExistence(timeout: 5), app.debugDescription)
-        success.buttons["好"].tap()
-        XCTAssertTrue(imported.exists)
+        XCTAssertTrue(targetFile.waitForExistence(timeout: 10), app.debugDescription)
     }
 
     func testRSSIsAvailableAsNormalTabAndCanBeDefaultHomePage() throws {
@@ -270,24 +286,7 @@ final class RuleEditorUITests: XCTestCase {
         XCTAssertTrue(cancel.waitForExistence(timeout: 10))
 
         let json = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "JSON-Source")).firstMatch
-        let fixtures = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "书源导入测试")).firstMatch
-        if !json.waitForExistence(timeout: 3) {
-            if !fixtures.exists {
-                let browse = app.buttons.matching(NSPredicate(format: "label IN %@", ["Browse", "浏览", "Locations", "位置"])).firstMatch
-                if browse.exists { browse.tap() }
-                if !fixtures.waitForExistence(timeout: 2) {
-                    let local = app.descendants(matching: .any).matching(NSPredicate(
-                        format: "label CONTAINS %@ OR label CONTAINS %@ OR label == %@", "我的 iPhone", "我的iPhone", "On My iPhone"
-                    )).firstMatch
-                    if !local.waitForExistence(timeout: 5) { print("[SourceFilePicker] \(app.debugDescription)") }
-                    XCTAssertTrue(local.exists)
-                    local.tap()
-                }
-            }
-            XCTAssertTrue(fixtures.waitForExistence(timeout: 10), "Run sh scripts/prepare-source-import-fixture.sh <simulator-UUID> before this test")
-            fixtures.tap()
-        }
-        XCTAssertTrue(json.waitForExistence(timeout: 10))
+        openSourceImportFixture(in: app, targetFile: json)
         json.tap()
         let uppercase = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "JSON-Uppercase")).firstMatch
         XCTAssertTrue(uppercase.waitForExistence(timeout: 5))

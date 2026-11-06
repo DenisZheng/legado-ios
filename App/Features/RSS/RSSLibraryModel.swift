@@ -62,7 +62,11 @@ final class RSSLibraryModel: ObservableObject {
     }
 
     func importFiles(_ urls: [URL]) async {
-        guard !urls.isEmpty else { return }
+        await importPickedFiles(urls.map { SourceImportFile(url: $0) })
+    }
+
+    func importPickedFiles(_ files: [SourceImportFile]) async {
+        guard !files.isEmpty else { return }
         errorMessage = nil
         successMessage = nil
         await perform {
@@ -71,13 +75,10 @@ final class RSSLibraryModel: ObservableObject {
             var merged = self.sources
             var importedSourceCount = 0
             var subscriptionCount = 0
-            for url in urls {
-                // UIDocumentPicker is configured with asCopy: true, so the returned URL
-                // is an app-owned copy and can safely be read after the picker closes.
+            for file in files {
+                // 与书源共用协调读取；file 持有选择器回调时取得的访问权限。
                 let data = try await Task.detached(priority: .userInitiated) {
-                    let values = try url.resourceValues(forKeys: [.isDirectoryKey])
-                    guard values.isDirectory != true else { throw RSSSourceImportError.notAFile }
-                    return try Data(contentsOf: url, options: [.mappedIfSafe])
+                    try file.read(notAFileError: RSSSourceImportError.notAFile)
                 }.value
                 let payload = try await Task.detached(priority: .userInitiated) {
                     try importer.decode(data)
@@ -92,7 +93,7 @@ final class RSSLibraryModel: ObservableObject {
             try await self.sourceRepository.save(merged)
             self.sources = try await self.sourceRepository.all()
             let addedCount = max(0, self.sources.count - originalCount)
-            self.successMessage = "导入完成：读取 \(urls.count) 个文件，包含 \(importedSourceCount) 个 RSS 源和 \(subscriptionCount) 个远程订阅清单；新增 \(addedCount) 个，当前共 \(self.sources.count) 个。"
+            self.successMessage = "导入完成：读取 \(files.count) 个文件，包含 \(importedSourceCount) 个 RSS 源和 \(subscriptionCount) 个远程订阅清单；新增 \(addedCount) 个，当前共 \(self.sources.count) 个。"
         }
     }
 
